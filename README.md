@@ -1,569 +1,1120 @@
 # Vampires Attack
-
-A Wireless Sensor Network (WSN) simulator for studying Vampire Attacks and their impact on network energy consumption.
-
-Sensor nodes are battery-powered and communicate wirelessly with nearby nodes, eventually forwarding data toward a central Sink / Base Station. Because node batteries cannot be recharged, energy exhaustion is a critical threat. Vampire Attacks exploit routing protocols to deliberately drain victim node batteries, causing nodes to die and fragmenting the network.
-
----
-
-## Current Status
-
-| Part | Owner | Status |
-|------|-------|--------|
-| **Part 1 — Network & Energy** | Member 1 | ✅ Complete |
-| Part 2 — Packet & Routing | Member 2 | 🔜 Next |
-| Part 3 — Vampire Attack & Security | Member 3 | 🔜 Planned |
-| Part 4 — Simulation, GUI & Analytics | Member 4 | 🔜 Planned |
-
----
-
-## Repository Structure
-
+A Wireless Sensor Network (WSN) simulator for studying **Vampire
+Attacks**, their effect on network energy consumption, and possible
+detection and mitigation techniques.
+The system models battery-powered sensor nodes that communicate with
+neighboring nodes and forward packets toward a central **Sink/Base
+Station**.
+## Project Overview
+In a Wireless Sensor Network, sensor nodes have limited battery energy.
+Nodes communicate with one another and forward packets through the
+network until they reach the Sink.
+A Vampire Attack manipulates packet routing so that packets travel
+through unnecessarily long or repeated paths. This causes additional
+packet forwarding and increased energy consumption, eventually reducing
+the lifetime of the network.
+The project is being developed in multiple stages:
+```text
+Network & Energy
+       ↓
+Packet & Routing
+       ↓
+Vampire Attack & Security
+       ↓
+Simulation, GUI & Analytics
 ```
+# Current Status
+## Part 1 - Network & Energy
+**Status: Completed**
+Part 1 provides the basic WSN infrastructure that the remaining parts
+will build upon.
+### Implemented
+* Sensor node creation
+* Unique node IDs
+* 2-D node positions
+* Initial battery energy
+* Current battery energy
+* Automatic alive/dead state
+* Energy consumption
+* Communication range
+* Euclidean distance calculation
+* Neighbor discovery
+* Bidirectional neighbor relationships
+* Sink/Base Station designation
+* First-order radio energy model
+* Transmission energy calculation
+* Reception energy calculation
+* Energy consumption during transmission
+* Sent/received packet counters
+* Dead-node protection
+* Node reset functionality
+**##
+How to Run and Check
+1. Open the Project
+cd "C:\Users\Neha\Desktop\Coding\CN\Vampires-Attack"
+2. Check the Current Branch
+git status
+git branch --show-current
+Do not work directly on main.
+3. Verify the Part 2 Files
+core/packet.py
+routing/dijkstra.py
+routing/router.py
+routing/routing_table.py
+tests/test_packet_routing.py
+4. Check Part 2 Imports
+python -c "from core.packet import Packet, PacketStatus; from routing.dijkstra import shortest_path; from routing.router import Router; from routing.routing_table import RoutingTable; print('Part 2 imports OK')"
+Expected:
+Part 2 imports OK
+5. Run Part 1 Tests
+python -m pytest tests/test_network_energy.py -v
+Expected:
+96 passed
+6. Run Part 2 Tests
+python -m pytest tests/test_packet_routing.py -v
+Expected:
+153 passed
+7. Run the Complete Test Suite
+python -m pytest tests/ -v
+Expected:
+249 passed
+This is:
+96 Part 1
+153 Part 2
+-----------
+249 total
+8. Review Changes
+git status
+git diff --stat
+git diff -- core/packet.py routing/dijkstra.py routing/router.py routing/routing_table.py
+git diff -- tests/test_packet_routing.py
+git diff -- README.md
+Run the complete test suite once more before committing:
+python -m pytest tests/ -v
+The final expected result is:
+249 passed
+Testing**
+```text
+96 tests passed
+```
+The Part 1 test suite passes completely.
+## Part 2 - Packet & Routing
+**Status: Completed**
+Part 2 implements packet representation and shortest-path routing on top
+of the Part 1 foundation.
+### Implemented
+* Packet class with source, destination, route, hop count, TTL, visited
+nodes
+* Packet lifecycle states: IN_TRANSIT, DELIVERED, EXPIRED, DROPPED
+* TTL enforcement --- packets expire when TTL reaches 0
+* Loop prevention --- packets are dropped if they attempt to revisit a
+node
+* Dijkstra shortest-path algorithm using `network.distance()` for
+edge weights
+* Only alive nodes are considered (via `network.get_neighbors()`)
+* RoutingTable for next-hop storage and cache
+* Router integrating Packet, Dijkstra, RoutingTable, Network, and
+EnergyModel
+* `router.find_route(source, destination)` --- returns ordered path
+or None
+* `router.get_next_hop(current_node, destination)` --- returns
+immediate next hop
+* `router.route_packet(packet)` --- forwards packet hop-by-hop to
+destination
+* Energy integration via `EnergyModel.transmit()` at every hop
+* `node.forwarded` counter correctly incremented on intermediate
+relay nodes
+* Dead-node safety at every forwarding step
+* Unreachable destination handling (returns None / drops packet)
+### Testing
+```text
+249 tests passed (96 Part 1 + 153 Part 2)
+```
+All original Part 1 tests continue to pass.
+# Repository Structure
+The repository is being developed incrementally.
+```text
 Vampires-Attack/
 │
 ├── core/
-│   ├── __init__.py
-│   ├── node.py              ✅ Implemented — sensor node
-│   └── network.py           ✅ Implemented — topology manager
+│   ├── node.py                    # Part 1 - implemented
+│   ├── network.py                 # Part 1 - implemented
+│   └── packet.py                  # Part 2 - implemented
 │
 ├── energy/
-│   ├── __init__.py
-│   └── energy_model.py      ✅ Implemented — radio energy model
+│   └── energy_model.py            # Part 1 - implemented
+│
+├── routing/
+│   ├── dijkstra.py                # Part 2 - implemented
+│   ├── router.py                  # Part 2 - implemented
+│   └── routing_table.py           # Part 2 - implemented
+│
+├── attacks/
+│   ├── stretch.py                 # Part 3 - planned
+│   └── carousel.py                # Part 3 - planned
+│
+├── security/
+│   ├── detector.py                # Part 3 - planned
+│   └── mitigation.py              # Part 3 - planned
+│
+├── simulation/
+│   └── simulator.py               # Part 4 - planned
+│
+├── gui/                           # Part 4 - planned
+│
+├── metrics/                       # Part 4 - planned
 │
 ├── tests/
-│   ├── __init__.py
-│   └── test_network_energy.py  ✅ 96 tests, all passing
+│   ├── test_network_energy.py     # Part 1 tests (96 tests)
+│   └── test_packet_routing.py     # Part 2 tests (141 tests)
 │
-├── requirements.txt
 └── README.md
 ```
-
-**Not yet created** (planned by future members):
-
+# Part 1 Architecture
+Part 1 contains three main components:
+```text
+                  ┌──────────────┐
+                  │    Network   │
+                  └──────┬───────┘
+                         │
+              manages topology
+                         │
+          ┌──────────────┴──────────────┐
+          │                             │
+   ┌──────▼──────┐               ┌──────▼──────┐
+   │    Nodes    │               │    Sink     │
+   └──────┬──────┘               └─────────────┘
+          │
+          │ battery state
+          ▼
+   ┌──────────────┐
+   │ EnergyModel  │
+   └──────────────┘
 ```
-core/packet.py               Part 2 — Packet definition
-routing/router.py            Part 2 — Routing logic
-routing/dijkstra.py          Part 2 — Path computation
-attacks/stretch.py           Part 3 — Stretch Attack
-attacks/carousel.py          Part 3 — Carousel Attack
-security/detector.py         Part 3 — Anomaly detection
-security/mitigation.py       Part 3 — Mitigation logic
-simulation/simulator.py      Part 4 — Simulation engine
-gui/                         Part 4 — Visualisation
-metrics/                     Part 4 — Analytics & CSV export
+### Responsibility separation
+| Component     | Responsibility                                      
+ |
+| ------------- |
+----------------------------------------------------- |
+| `Node`        | Identity, position, energy, neighbors, counters  
+    |
+| `Network`     | Nodes, topology, distance, neighbors, Sink        
+   |
+| `EnergyModel` | Transmission/reception energy and battery
+consumption |
+Part 1 intentionally does **not** contain packet routing,
+Vampire Attack logic, detection, mitigation, simulation, GUI, or
+metrics.
+# 1. Node
+File:
+```text
+core/node.py
 ```
-
----
-
-## Architecture
-
-```
- Node  ←  owns battery energy and position
-   │
- Network  ←  manages nodes, topology, distance, neighbors, sink
-   │
- EnergyModel  ←  calculates and applies energy consumption
-   │
- [Part 2]  Router / Packet  ←  uses Network + EnergyModel
-   │
- [Part 3]  Attack / Security  ←  manipulates routing
-   │
- [Part 4]  Simulation / GUI / Metrics  ←  orchestrates everything
-```
-
----
-
-# Part 1: Network & Energy
-
-Part 1 provides the foundation that every other module builds on.
-It has no dependencies on routing, packets, attacks, detection, or GUI.
-
----
-
-## `core/node.py` — Node
-
-A `Node` represents one battery-powered sensor node in the network.
-
-### Constructor
-
+The `Node` class represents a single battery-powered sensor node.
+## Creating a Node
 ```python
 from core.node import Node
-
-node = Node(node_id, x, y, initial_energy)
+node = Node(
+    node_id="N1",
+    x=10,
+    y=20,
+    initial_energy=100.0,
+)
 ```
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `node_id` | `str` | Unique identifier, e.g. `"N1"` or `"SINK"` |
-| `x` | `float` | X-coordinate |
-| `y` | `float` | Y-coordinate |
-| `initial_energy` | `float` | Starting battery in Joules — must be `> 0` |
-
-Raises `ValueError` if `initial_energy <= 0`.
-
-### Properties
-
-| Property | Type | Notes |
-|----------|------|-------|
-| `node.id` | `str` | Unique identifier — read-only |
-| `node.x` | `float` | X-coordinate — read-only |
-| `node.y` | `float` | Y-coordinate — read-only |
-| `node.position` | `tuple[float, float]` | `(x, y)` — read-only |
-| `node.initial_energy` | `float` | Original battery — never changes |
-| `node.energy` | `float` | Current remaining energy — always `>= 0` |
-| `node.alive` | `bool` | `True` if `energy > 0`; `False` when dead — derived, never manually set |
-| `node.neighbors` | `set[str]` | Set of neighboring node IDs — managed by `Network` |
-| `node.sent` | `int` | Packets sent — incremented by `EnergyModel.transmit()` |
-| `node.received` | `int` | Packets received — incremented by `EnergyModel.transmit()` |
-| `node.forwarded` | `int` | Packets forwarded — **set by the routing layer (Part 2)** |
-
-`sent`, `received`, and `forwarded` have both getters and setters so external layers can increment them directly (`node.forwarded += 1`).
-
-### Methods
-
-#### `consume_energy(amount: float) -> None`
-
-Deducts `amount` Joules from the node's battery.
-
-- `amount <= 0` → silently ignored, no state change
-- `amount > 0` → `energy = max(0.0, energy - amount)`
-- Energy can never go below `0.0`
-- When energy reaches `0.0`, `alive` becomes `False` automatically
-
-#### `add_neighbor(node_id: str) -> None`
-
-Adds a node ID to the neighbor set. Duplicate additions are ignored (set semantics).
-
-#### `remove_neighbor(node_id: str) -> None`
-
-Removes a node ID from the neighbor set. If the ID is not present, the call is silently ignored.
-
-#### `reset() -> None`
-
-Restores the node to its creation state:
-- `energy` → `initial_energy`
-- `sent`, `received`, `forwarded` → `0`
-- `neighbors` → empty set
-
-After calling `reset()` on any node, call `network.update_neighbors()` to restore the topology.
-
-### Example
-
+The constructor accepts:
+| Parameter        | Description            |
+| ---------------- | ---------------------- |
+| `node_id`        | Unique node identifier |
+| `x`              | X-coordinate           |
+| `y`              | Y-coordinate           |
+| `initial_energy` | Initial battery energy |
+`initial_energy` must be greater than zero.
+## Node Properties
+### Identity
 ```python
-from core.node import Node
-
-n = Node("N1", 0.0, 0.0, 100.0)
-
-print(n.id)             # "N1"
-print(n.position)       # (0.0, 0.0)
-print(n.energy)         # 100.0
-print(n.alive)          # True
-
-n.consume_energy(60)
-print(n.energy)         # 40.0
-print(n.alive)          # True
-
-n.consume_energy(9999)  # clamps to 0
-print(n.energy)         # 0.0
-print(n.alive)          # False
-
-n.reset()
-print(n.energy)         # 100.0
-print(n.alive)          # True
+node.id
 ```
-
----
-
-## `core/network.py` — Network
-
-`Network` manages all nodes, the communication topology, distances, neighbor discovery, and the Sink.
-
-### Constructor
-
+Returns the node's unique identifier.
+### Position
+```python
+node.x
+node.y
+node.position
+```
+Example:
+```python
+print(node.position)
+```
+Output:
+```text
+(10.0, 20.0)
+```
+The position is later used by `Network` to calculate distances.
+### Energy
+```python
+node.initial_energy
+node.energy
+```
+`initial_energy` stores the battery level when the node was created.
+`energy` stores the currently remaining battery energy.
+Example:
+```python
+print(node.initial_energy)
+print(node.energy)
+```
+## Consuming Energy
+Use:
+```python
+node.consume_energy(amount)
+```
+Example:
+```python
+node.consume_energy(20)
+```
+If the node initially has:
+```text
+100 J
+```
+the remaining energy becomes:
+```text
+80 J
+```
+Energy can never become negative.
+If a node has `20 J` remaining:
+```python
+node.consume_energy(50)
+```
+results in:
+```text
+energy = 0
+alive = False
+```
+## Alive / Dead State
+The node's state is determined directly from its remaining energy.
+```python
+node.alive
+```
+The behavior is:
+```text
+energy > 0  → alive
+energy = 0  → dead
+```
+There is no separate alive flag that can become inconsistent with the
+battery.
+This is important for routing because dead nodes must not be used for
+forwarding.
+## Neighbors
+A node stores its neighboring node IDs:
+```python
+node.neighbors
+```
+Example:
+```text
+{"N2", "N3", "N5"}
+```
+The `Network` class manages the actual topology.
+Normally, routing code should use:
+```python
+network.get_neighbors(node_id)
+```
+rather than manually modifying neighbor relationships.
+## Packet Counters
+Each node maintains three counters:
+```python
+node.sent
+node.received
+node.forwarded
+```
+Initial values:
+```text
+sent      = 0
+received  = 0
+forwarded = 0
+```
+`EnergyModel.transmit()` automatically increments:
+```python
+sender.sent
+receiver.received
+```
+The `forwarded` counter is intentionally not handled by
+`EnergyModel`.
+The routing/simulation layer is responsible for deciding when a packet
+was actually forwarded.
+## Reset
+A node can be restored to its initial state:
+```python
+node.reset()
+```
+This restores:
+```text
+energy    → initial_energy
+sent      → 0
+received  → 0
+forwarded → 0
+neighbors → empty
+```
+After resetting nodes, the network should rebuild its neighbor
+relationships:
+```python
+network.update_neighbors()
+```
+# 2. Network
+File:
+```text
+core/network.py
+```
+The `Network` class manages the WSN topology.
+Its responsibilities are:
+* Storing nodes
+* Retrieving nodes
+* Communication range
+* Distance calculation
+* Neighbor discovery
+* Bidirectional neighbors
+* Sink/Base Station
+## Creating a Network
 ```python
 from core.network import Network
-
-net = Network(communication_range=50.0)
+network = Network(
+    communication_range=50
+)
 ```
-
-Raises `ValueError` if `communication_range <= 0`.
-
-### Properties
-
-| Property | Type | Notes |
-|----------|------|-------|
-| `net.communication_range` | `float` | Max direct-link distance |
-| `net.nodes` | `dict[str, Node]` | All nodes keyed by ID — alive **and** dead |
-| `net.sink` | `Node \| None` | Sink / Base Station, or `None` if not set |
-
-### Methods
-
-#### `add_node(node: Node) -> None`
-
-Adds a node to the network, keyed by `node.id`. Replaces silently if the same ID is added twice.
-
-#### `get_node(node_id: str) -> Node | None`
-
-Returns the node with that ID, or **`None`** if not found. Does not raise an exception.
-
+The communication range determines whether two nodes can directly
+communicate.
+Two nodes are neighbors when:
+```text
+distance <= communication_range
+```
+## Adding Nodes
 ```python
-node = net.get_node("N1")
-if node is None:
-    print("not found")
+network.add_node(node)
 ```
-
-#### `set_sink(node_id: str) -> None`
-
-Designates an existing node as the Sink / Base Station.
-Raises `KeyError` if the node does not exist in the network.
-
-```python
-net.set_sink("SINK")
-print(net.sink.id)   # "SINK"
-```
-
-#### `distance(node_a, node_b) -> float`
-
-Returns the Euclidean distance between two nodes using `math.hypot`.
-
-Both arguments accept either a `Node` object or a node ID string.
-
-```
-distance = sqrt((x1 - x2)² + (y1 - y2)²)
-```
-
-Raises `KeyError` if a string ID doesn't exist. Raises `TypeError` for any other type.
-
-#### `update_neighbors() -> None`
-
-Rebuilds all bidirectional neighbor relationships from scratch.
-
-Algorithm:
-1. Clear every node's neighbor set (removes stale data from previous topology).
-2. For every unique pair `(A, B)`, compute Euclidean distance.
-3. If `distance <= communication_range`: add `B` to `A.neighbors` and `A` to `B.neighbors`.
-
-Call this after adding nodes or changing positions.
-
-#### `get_neighbors(node_id: str) -> list[Node]`
-
-Returns the **alive** direct neighbors of the given node.
-
-Dead nodes (`node.alive == False`) are **excluded** from the returned list even though they remain in `net.nodes`. This is intentional — the routing layer must never attempt to forward packets through a dead node.
-
-Raises `KeyError` if `node_id` does not exist.
-
-### Dead-Node Behaviour in Network
-
-Dead nodes are **never removed** from `net.nodes`. This allows future modules to:
-- Render dead nodes greyed-out in the GUI
-- Count how many nodes have died in metrics
-- Trace which nodes were killed in an attack
-
-They are only excluded from `get_neighbors()` so routing code never treats them as active links.
-
-### Example
-
+Example:
 ```python
 from core.node import Node
 from core.network import Network
-
-net = Network(communication_range=50.0)
-
-n1   = Node("N1",   0,  0, 100.0)
-n2   = Node("N2",  30,  0, 100.0)
-n3   = Node("N3", 100,  0, 100.0)
-sink = Node("SINK", 15,  0, 500.0)
-
-for node in (n1, n2, n3, sink):
-    net.add_node(node)
-
-net.set_sink("SINK")
-net.update_neighbors()
-
-print(net.distance("N1", "N2"))              # 30.0
-print([n.id for n in net.get_neighbors("N1")])  # ["N2", "SINK"]
-
-# Kill N2
-n2.consume_energy(n2.energy)
-print(n2.alive)                              # False
-print("N2" in net.nodes)                    # True  (still stored)
-print([n.id for n in net.get_neighbors("N1")])  # ["SINK"] (N2 excluded)
+network = Network(communication_range=50)
+n1 = Node("N1", 0, 0, 100)
+n2 = Node("N2", 30, 40, 100)
+network.add_node(n1)
+network.add_node(n2)
 ```
-
----
-
-## `energy/energy_model.py` — EnergyModel
-
-Implements the **first-order radio energy model** (Heinzelman et al., 2000).
-
-Three public names are exported from this module:
-
-- `EnergyModel` — the main class
-- `NodeDeadError` — raised when a dead node tries to communicate
-- `TransmissionResult` — dataclass returned by `transmit()`
-
-### Radio Energy Formulas
-
-**Transmission energy:**
+Nodes are stored by their IDs.
+## Getting a Node
+```python
+node = network.get_node("N1")
 ```
-E_tx = E_elec × packet_size  +  E_amp × packet_size × distance²
+If the node exists, the corresponding `Node` object is returned.
+If the node does not exist:
+```text
+None
 ```
-
-**Reception energy:**
+is returned.
+## Distance Calculation
+Use:
+```python
+network.distance(node_a, node_b)
 ```
+The method accepts either `Node` objects or node IDs.
+Examples:
+```python
+distance = network.distance(n1, n2)
+```
+or:
+```python
+distance = network.distance("N1", "N2")
+```
+The distance is calculated using Euclidean distance:
+```text
+distance = √((x1 - x2)² + (y1 - y2)²)
+```
+For example:
+```text
+N1 = (0, 0)
+N2 = (3, 4)
+distance = 5
+```
+The routing layer should use this existing method rather than
+implementing another distance calculation.
+# Neighbor Discovery
+After adding nodes:
+```python
+network.update_neighbors()
+```
+The network checks every pair of nodes and creates bidirectional
+neighbor relationships for nodes within communication range.
+Example:
+```text
+N1 <------> N2
+```
+results in:
+```python
+N1.neighbors == {"N2"}
+N2.neighbors == {"N1"}
+```
+Calling `update_neighbors()` rebuilds the topology and removes stale
+neighbor relationships.
+# Getting Neighbors
+Use:
+```python
+neighbors = network.get_neighbors("N1")
+```
+This returns a list of **alive `Node` objects**.
+Example:
+```python
+for neighbor in network.get_neighbors("N1"):
+    print(neighbor.id)
+```
+The routing layer can directly access:
+```python
+neighbor.id
+neighbor.position
+neighbor.energy
+neighbor.alive
+```
+# Dead Nodes
+Dead nodes are not removed from the network.
+They remain in:
+```python
+network.nodes
+```
+This allows future simulation and analytics code to inspect dead nodes.
+However, dead nodes are excluded from:
+```python
+network.get_neighbors(...)
+```
+For example:
+```text
+N1 -------- N2 -------- N3
+                       DEAD
+```
+If N3 has zero energy:
+```python
+network.get_neighbors("N2")
+```
+will not return N3.
+This allows the routing layer to work with currently usable neighbors.
+# Sink / Base Station
+The Sink is represented using a normal `Node`.
+Example:
+```python
+sink = Node(
+    node_id="SINK",
+    x=100,
+    y=100,
+    initial_energy=1000,
+)
+network.add_node(sink)
+network.set_sink("SINK")
+```
+The Sink can then be accessed using:
+```python
+network.sink
+```
+Example:
+```python
+print(network.sink.id)
+```
+The Sink does not require a separate Node class.
+# 3. Energy Model
+File:
+```text
+energy/energy_model.py
+```
+The `EnergyModel` implements the first-order radio energy model.
+## Transmission Energy
+The transmission energy is:
+```text
+E_tx = E_elec × packet_size
+     + E_amp × packet_size × distance²
+```
+## Reception Energy
+The reception energy is:
+```text
 E_rx = E_elec × packet_size
 ```
-
-| Constant | Default | Value |
-|----------|---------|-------|
-| `E_elec` | `50e-9` | 50 nJ/bit — electronics energy per bit |
-| `E_amp` | `100e-12` | 100 pJ/bit/m² — amplifier energy per bit per metre² |
-
-Both constants are configurable via the constructor. Units: Joules, bits, metres.
-
-### Constructor
-
+## Default Constants
+The current implementation uses:
+```text
+E_elec = 50e-9 J/bit
+E_amp  = 100e-12 J/bit/m²
+```
+These values can be configured when creating an `EnergyModel`.
+## Creating an Energy Model
 ```python
 from energy.energy_model import EnergyModel
-
-em = EnergyModel()                          # use defaults
-em = EnergyModel(e_elec=50e-9, e_amp=100e-12)  # explicit
+energy_model = EnergyModel()
 ```
-
-Raises `ValueError` if either constant is `<= 0`.
-
-### Methods
-
-#### `transmission_energy(packet_size, distance) -> float`
-
-Returns the Joules required to transmit `packet_size` bits over `distance` metres.
-Raises `ValueError` for negative arguments.
-
-#### `reception_energy(packet_size) -> float`
-
-Returns the Joules required to receive `packet_size` bits.
-Raises `ValueError` for negative `packet_size`.
-
-#### `transmit(sender, receiver, packet_size, distance) -> TransmissionResult`
-
-Performs a complete single-hop transmission. Steps in order:
-
-1. Raise `NodeDeadError(role="sender")` if `sender.alive` is `False`
-2. Raise `NodeDeadError(role="receiver")` if `receiver.alive` is `False`
-3. Calculate `E_tx = transmission_energy(packet_size, distance)`
-4. Calculate `E_rx = reception_energy(packet_size)`
-5. Call `sender.consume_energy(E_tx)`
-6. Call `receiver.consume_energy(E_rx)`
-7. Increment `sender.sent`
-8. Increment `receiver.received`
-9. Return `TransmissionResult`
-
-**`sender.forwarded` is NOT incremented here.** Deciding whether a transmission counts as a forward is a routing-layer responsibility. The routing module (Part 2) must increment `node.forwarded` itself.
-
-### `NodeDeadError`
-
+Custom values can be provided:
+```python
+energy_model = EnergyModel(
+    e_elec=50e-9,
+    e_amp=100e-12,
+)
+```
+# Transmission Energy Calculation
+Use:
+```python
+tx_energy = energy_model.transmission_energy(
+    packet_size,
+    distance,
+)
+```
+Example:
+```python
+tx_energy = energy_model.transmission_energy(
+    packet_size=4000,
+    distance=10,
+)
+```
+# Reception Energy Calculation
+Use:
+```python
+rx_energy = energy_model.reception_energy(
+    packet_size
+)
+```
+Example:
+```python
+rx_energy = energy_model.reception_energy(4000)
+```
+# Performing a Transmission
+The main method that future routing and simulation code should use is:
+```python
+energy_model.transmit(
+    sender,
+    receiver,
+    packet_size,
+    distance,
+)
+```
+Example:
+```python
+distance = network.distance(
+    sender,
+    receiver,
+)
+result = energy_model.transmit(
+    sender=sender,
+    receiver=receiver,
+    packet_size=4000,
+    distance=distance,
+)
+```
+The transmission operation:
+1. Checks that the sender is alive.
+2. Checks that the receiver is alive.
+3. Calculates transmission energy.
+4. Calculates reception energy.
+5. Deducts energy from the sender.
+6. Deducts energy from the receiver.
+7. Increments `sender.sent`.
+8. Increments `receiver.received`.
+9. Returns a `TransmissionResult`.
+# TransmissionResult
+`transmit()` returns a `TransmissionResult`.
+Example:
+```python
+result = energy_model.transmit(
+    sender,
+    receiver,
+    4000,
+    distance,
+)
+```
+The result provides:
+```python
+result.tx_energy
+result.rx_energy
+result.sender_alive
+result.receiver_alive
+```
+This allows the future simulation layer to determine the energy consumed
+and whether either node died as a result of the transmission.
+# Dead Node Protection
+The EnergyModel prevents transmissions involving dead nodes.
+If the sender is dead:
+```text
+NodeDeadError
+```
+is raised.
+If the receiver is dead:
+```text
+NodeDeadError
+```
+is raised.
+Example:
 ```python
 from energy.energy_model import NodeDeadError
-
 try:
-    em.transmit(dead_node, receiver, 4000, 30.0)
-except NodeDeadError as e:
-    print(e.node_id)   # ID of the dead node
-    print(e.role)      # "sender" or "receiver"
+    result = energy_model.transmit(
+        sender,
+        receiver,
+        4000,
+        distance,
+    )
+except NodeDeadError:
+    print("Transmission failed")
 ```
-
-### `TransmissionResult`
-
+# How Part 2 Uses Part 1
+Part 2 is responsible for packet handling and routing.
+The expected Part 2 modules are:
+```text
+core/packet.py
+routing/dijkstra.py
+routing/router.py
+routing/routing_table.py
+```
+Part 2 should **build on the existing Part 1 implementation**.
+It should not duplicate Node, Network, distance, or energy
+functionality.
+The intended flow is:
+```text
+                 Packet
+                    │
+                    ▼
+                 Router
+                    │
+                    ▼
+          Network.get_neighbors()
+                    │
+                    ▼
+              Select Next Hop
+                    │
+                    ▼
+           Network.distance()
+                    │
+                    ▼
+          EnergyModel.transmit()
+                    │
+                    ▼
+             Node Energy
+```
+# Example Routing Flow
+Suppose the routing algorithm determines:
+```text
+N1 → N3 → N5 → SINK
+```
+For the first hop:
 ```python
-@dataclass
-class TransmissionResult:
-    tx_energy: float       # Joules consumed by sender
-    rx_energy: float       # Joules consumed by receiver
-    sender_alive: bool     # whether sender survived this transmission
-    receiver_alive: bool   # whether receiver survived this transmission
+sender = network.get_node("N1")
+receiver = network.get_node("N3")
 ```
-
-### Example
-
+Get the distance from the Network:
+```python
+distance = network.distance(
+    sender,
+    receiver,
+)
+```
+Then perform the transmission through the EnergyModel:
+```python
+result = energy_model.transmit(
+    sender=sender,
+    receiver=receiver,
+    packet_size=4000,
+    distance=distance,
+)
+```
+The important separation is:
+```text
+Router
+    → decides WHERE the packet goes
+Network
+    → provides topology and distance
+EnergyModel
+    → calculates and consumes energy
+Node
+    → stores the resulting state
+```
+The routing layer should decide the receiver. It should not reimplement
+the Network or EnergyModel.
+# Part 2 Integration Contract
+The following interfaces are already available to the routing
+implementation.
+## Node
+```python
+node.id
+node.x
+node.y
+node.position
+node.initial_energy
+node.energy
+node.alive
+node.neighbors
+node.sent
+node.received
+node.forwarded
+node.consume_energy(amount)
+node.add_neighbor(node_id)
+node.remove_neighbor(node_id)
+node.reset()
+```
+## Network
+```python
+network.nodes
+network.sink
+network.communication_range
+network.add_node(node)
+network.get_node(node_id)
+network.set_sink(node_id)
+network.distance(
+    node_a,
+    node_b,
+)
+network.update_neighbors()
+network.get_neighbors(node_id)
+```
+## EnergyModel
+```python
+energy_model.e_elec
+energy_model.e_amp
+energy_model.transmission_energy(
+    packet_size,
+    distance,
+)
+energy_model.reception_energy(
+    packet_size,
+)
+energy_model.transmit(
+    sender,
+    receiver,
+    packet_size,
+    distance,
+)
+```
+# Integration Rules for Part 2
+### 1. Do not create another Node class
+Use:
 ```python
 from core.node import Node
-from energy.energy_model import EnergyModel, NodeDeadError
-
-em = EnergyModel()
-
-sender   = Node("N1", 0, 0, 1.0)
-receiver = Node("N2", 30, 0, 1.0)
-
-result = em.transmit(sender, receiver, packet_size=4000, distance=30.0)
-
-print(f"Tx consumed : {result.tx_energy * 1e6:.3f} µJ")
-print(f"Rx consumed : {result.rx_energy * 1e6:.3f} µJ")
-print(f"Sender alive: {result.sender_alive}")
-print(f"sender.sent : {sender.sent}")        # 1
-print(f"receiver.received: {receiver.received}")  # 1
 ```
-
----
-
-# How Part 2 Uses Part 1
-
-> **This section is written for Member 2 (Packet & Routing).**
-
-Do not re-implement `Node`, `Network`, distance calculation, or energy consumption.
-Import and use the Part 1 interfaces directly.
-
-### What Part 2 owns
-
-- `Packet` — define the packet structure (source, destination, payload, path, etc.)
-- `Router` — implement the routing protocol (e.g. greedy geographic, GPSR, or DSR)
-- Path computation — shortest path, minimum energy path, or as required
-
-### What Part 2 must NOT duplicate
-
-- `Node` — already in `core/node.py`
-- `Network` — already in `core/network.py`
-- Distance calculation — use `network.distance()`
-- Energy consumption — use `energy_model.transmit()`
-- Battery state — read `node.energy` and `node.alive`
-
-### Routing flow
-
+### 2. Do not create another Network class
+Use:
+```python
+from core.network import Network
 ```
-Packet arrives at node X
-        │
-Router asks: who are my alive neighbors?
-        │
-  network.get_neighbors("X")   →  list[Node], dead nodes excluded
-        │
-Router picks next hop Y (e.g. closest to destination)
-        │
-  network.distance(X, Y)       →  float
-        │
-  energy_model.transmit(X, Y, packet_size, distance)
-        │
-  node X: energy ↓,  sent ↑
-  node Y: energy ↓,  received ↑
-        │
-Router sets:  node_X.forwarded += 1   ← routing layer responsibility
-        │
-Repeat at Y
+### 3. Do not implement another distance function
+Use:
+```python
+network.distance(...)
 ```
-
-### Concrete example
-
+### 4. Do not manually calculate transmission energy
+Use:
+```python
+energy_model.transmission_energy(...)
+```
+or:
+```python
+energy_model.transmit(...)
+```
+### 5. Do not manually deduct battery energy
+Use:
+```python
+energy_model.transmit(...)
+```
+The EnergyModel already handles sender and receiver energy consumption.
+### 6. Do not route through dead nodes
+Use:
+```python
+network.get_neighbors(node_id)
+```
+This returns alive neighboring nodes.
+### 7. Do not update `forwarded` inside EnergyModel
+`forwarded` belongs to the routing/simulation layer because routing
+determines whether a packet was actually forwarded.
+### 8. Avoid unnecessary changes to Part 1
+Treat the existing Node, Network, and EnergyModel interfaces as the
+integration contract.
+If Part 2 genuinely requires an interface change, coordinate the change
+instead of independently redesigning Part 1.
+# Complete Part 1 Example
+The following demonstrates how the three Part 1 components work
+together:
 ```python
 from core.node import Node
 from core.network import Network
-from energy.energy_model import EnergyModel, NodeDeadError
-
-net = Network(communication_range=50.0)
-em  = EnergyModel()
-
-# -- setup (done by Part 1 / simulation init) --
-n1   = Node("N1",   0,  0, 0.5)
-n2   = Node("N2",  30,  0, 0.5)
-sink = Node("SINK", 60,  0, 1.0)
-for node in (n1, n2, sink):
-    net.add_node(node)
-net.set_sink("SINK")
-net.update_neighbors()
-
-# -- Part 2 routing code --
-def forward_one_hop(network, energy_model, sender_id, receiver_id, packet_size):
-    sender   = network.get_node(sender_id)
-    receiver = network.get_node(receiver_id)
-
-    if sender is None or receiver is None:
-        raise ValueError("Unknown node ID")
-
-    distance = network.distance(sender, receiver)
-
-    try:
-        result = energy_model.transmit(sender, receiver, packet_size, distance)
-    except NodeDeadError as e:
-        print(f"Transmission failed: {e}")
-        return None
-
-    sender.forwarded += 1   # routing layer sets this
-    return result
-
-# route: N1 → N2 → SINK
-forward_one_hop(net, em, "N1", "N2",   packet_size=4000)
-forward_one_hop(net, em, "N2", "SINK", packet_size=4000)
-
-print(net.get_node("N1").sent)       # 1
-print(net.get_node("N1").forwarded)  # 1
-print(net.get_node("N2").received)   # 1
-print(net.get_node("N2").sent)       # 1
-print(net.get_node("N2").forwarded)  # 1
+from energy.energy_model import EnergyModel
+network = Network(communication_range=50)
+n1 = Node("N1", 0, 0, 100)
+n2 = Node("N2", 30, 40, 100)
+sink = Node(
+    "SINK",
+    60,
+    40,
+    1000,
+)
+network.add_node(n1)
+network.add_node(n2)
+network.add_node(sink)
+network.set_sink("SINK")
+network.update_neighbors()
+energy_model = EnergyModel()
+sender = network.get_node("N1")
+receiver = network.get_node("N2")
+distance = network.distance(
+    sender,
+    receiver,
+)
+result = energy_model.transmit(
+    sender=sender,
+    receiver=receiver,
+    packet_size=4000,
+    distance=distance,
+)
+print(result)
+print(sender.energy)
+print(receiver.energy)
 ```
-
-### Key interfaces summary
-
-| Need | Use |
-|------|-----|
-| Find a node | `network.get_node(node_id)` → `Node \| None` |
-| Get alive next-hop candidates | `network.get_neighbors(node_id)` → `list[Node]` |
-| Compute link distance | `network.distance(a, b)` → `float` |
-| Transmit and drain energy | `energy_model.transmit(sender, receiver, size, dist)` |
-| Check if node can forward | `node.alive` |
-| Record a forwarded packet | `node.forwarded += 1` |
-| Inspect remaining battery | `node.energy`, `node.initial_energy` |
-| Handle dead node during route | `except NodeDeadError` |
-
----
-
+In Part 2, the manually selected receiver will be replaced by the next
+hop selected by the routing algorithm.
 # Testing
-
-Tests live in `tests/test_network_energy.py` and cover Part 1 only.
-
+Run the complete test suite using:
 ```bash
-# Install dependencies
-pip install -r requirements.txt
-
-# Run all Part 1 tests
+python -m pytest tests/ -v
+```
+Current result:
+```text
+237 passed  (96 Part 1 + 141 Part 2)
+```
+Run Part 1 tests only:
+```bash
 python -m pytest tests/test_network_energy.py -v
 ```
-
-**Result: 96 passed**
-
-| Test class | Tests | What is covered |
-|------------|-------|----------------|
-| `TestNodeCreation` | 15 | id, x, y, position, energy, alive, counters, neighbors, invalid energy |
-| `TestNodeEnergyConsumption` | 4 | Partial drain, alive, initial_energy unchanged |
-| `TestNodeExactDepletion` | 2 | energy → 0, alive → False |
-| `TestNodeExcessiveConsumption` | 4 | Clamp to 0, never negative |
-| `TestNodeInvalidConsumption` | 3 | Negative and zero amount ignored |
-| `TestNodeNeighborManagement` | 5 | Add, deduplicate, remove, missing remove |
-| `TestNodeReset` | 4 | Energy, alive, counters, neighbors restored |
-| `TestNetworkAddNode` | 3 | Single, multiple, stored by ID |
-| `TestNetworkGetNode` | 2 | Returns correct node |
-| `TestNetworkGetNodeInvalid` | 2 | Returns None for missing ID |
-| `TestNetworkDistance` | 7 | 3-4-5 triangle, by ID, by Node, symmetric, mixed, invalid |
-| `TestNetworkCommunicationRange` | 4 | Within range, outside, exact boundary, just outside |
-| `TestNetworkBidirectionalNeighbors` | 3 | N1↔N2, N2↔N1, 3-node chain |
-| `TestNetworkNeighborRebuilding` | 2 | Stale removed, new node picked up |
-| `TestNetworkDeadNeighborExclusion` | 3 | Dead excluded from get_neighbors, still in nodes |
-| `TestNetworkSink` | 4 | Valid sink, initially None, invalid raises, same object |
-| `TestTransmissionEnergyCalculation` | 6 | Formula correctness, zero distance, zero packet, negatives raise |
-| `TestReceptionEnergyCalculation` | 4 | Formula correctness, zero packet, negative raises |
-| `TestTransmitOperation` | 8 | Energy decreases, sent++, received++, forwarded untouched, result type |
-| `TestTransmissionCausesDeath` | 2 | Sender dies after transmit |
-| `TestDeadSender` | 2 | NodeDeadError raised, receiver untouched |
-| `TestDeadReceiver` | 2 | NodeDeadError raised, sender untouched |
-| `TestEnergyNeverNegative` | 4 | Clamping in consume, transmit, receive |
-| `TestIntegration` | 1 | Full end-to-end workflow |
-| **Total** | **96** | **All pass ✅** |
-
----
-
-## Installation
-
+Run Part 2 tests only:
 ```bash
-# Python 3.10+ required
-pip install -r requirements.txt
+python -m pytest tests/test_packet_routing.py -v
 ```
-
-`requirements.txt` contains only `pytest`. The entire implementation uses the Python standard library (`math`, `dataclasses`).
+The test suite covers:
+* Node creation
+* Node validation
+* Node position
+* Initial and current energy
+* Energy consumption
+* Energy depletion
+* Energy non-negativity
+* Neighbor management
+* Node reset
+* Network node management
+* Distance calculation
+* Communication range
+* Communication boundary
+* Bidirectional neighbors
+* Neighbor rebuilding
+* Dead-node exclusion
+* Sink configuration
+* Transmission energy
+* Reception energy
+* Transmission operation
+* Sent/received counters
+* Dead-node protection
+* Part 1 integration
+# Development Roadmap
+## Part 1 - Network & Energy
+**Status: Completed**
+Implemented:
+```text
+core/node.py
+core/network.py
+energy/energy_model.py
+```
+## Part 2 - Packet & Routing
+**Status: Completed**
+Implemented modules:
+```text
+core/packet.py
+routing/dijkstra.py
+routing/router.py
+routing/routing_table.py
+```
+Implemented functionality:
+* Packet source, destination, route, hop count, TTL, visited nodes
+* Packet lifecycle: IN_TRANSIT, DELIVERED, EXPIRED, DROPPED
+* Dijkstra shortest-path using `network.distance()` for edge weights
+* Dead-node exclusion via `network.get_neighbors()`
+* RoutingTable with set/get/remove/has_route/clear
+* Router with `find_route`, `get_next_hop`, `route_packet`
+* Packet forwarding with `EnergyModel.transmit()` at every hop
+* `node.forwarded` counter on intermediate relay nodes
+* TTL enforcement and expiry
+* Loop prevention via visited set
+* Unreachable destination handling (None / DROPPED)
+* Dead-node safety at every forwarding step
+### Part 2 API Reference
+#### Packet
+```python
+from core.packet import Packet, PacketStatus
+packet = Packet(
+    source="N1",
+    destination="SINK",
+    ttl=10,           # max hops (default: 50)
+    packet_size=4000, # bits (default: 4000)
+)
+packet.source          # "N1"
+packet.destination     # "SINK"
+packet.route           # \("N1"\)  (grows as packet moves)
+packet.current_node    # "N1"
+packet.hops            # 0
+packet.ttl             # 10
+packet.visited         # {"N1"}
+packet.in_transit      # True
+packet.delivered       # False
+packet.expired         # False
+packet.dropped         # False
+packet.status          # PacketStatus.IN_TRANSIT
+packet.advance("N2")   # move to next hop
+packet.mark_dropped()  # explicitly drop
+packet.mark_expired()  # explicitly expire
+```
+#### Dijkstra
+```python
+from routing.dijkstra import shortest_path
+path = shortest_path(network, "N1", "SINK")
+# => \("N1", "N2", "N3", "SINK"\)  or  None
+```
+Returns `None` if source/destination is nonexistent, dead, or
+unreachable.
+#### RoutingTable
+```python
+from routing.routing_table import RoutingTable
+table = RoutingTable()
+table.set_next_hop("SINK", "N3")   # store route
+table.get_next_hop("SINK")         # => "N3"
+table.has_route("SINK")            # => True
+table.remove_route("SINK")
+table.clear()
+```
+#### Router
+```python
+from routing.router import Router
+router = Router(network, energy_model)
+# Find full path
+route = router.find_route("N1", "SINK")
+# => \("N1", "N2", "N3", "SINK"\)  or  None
+# Next hop only
+next_hop = router.get_next_hop("N1", "SINK")
+# => "N2"
+# Route a packet end-to-end
+from core.packet import Packet
+packet = Packet("N1", "SINK", ttl=10)
+router.route_packet(packet)
+assert packet.delivered  # True
+```
+#### Forwarding Counters
+For a route N1 → N2 → N3 → SINK:
+| Node | `sent` | `received` | `forwarded` |
+|------|--------|------------|-------------|
+| N1   | 1      | 0          | 0           |
+| N2   | 1      | 1          | 1           |
+| N3   | 1      | 1          | 1           |
+| SINK | 0      | 1          | 0           |
+`sent` and `received` are managed by `EnergyModel.transmit()`.
+`forwarded` is managed by the Router.
+### Testing
+```text
+249 tests passed (96 Part 1 + 153 Part 2)
+```
+Run the full test suite:
+```bash
+python -m pytest tests/ -v
+```
+## Part 3 - Vampire Attack & Security
+**Status: Planned**
+Expected functionality:
+```text
+Stretch Attack
+Carousel Attack
+Attack Detection
+Attack Mitigation
+```
+The attack layer will build on the packet and routing system.
+## Part 4 - Simulation, GUI & Analytics
+**Status: Planned**
+Expected functionality:
+```text
+Simulation Engine
+GUI
+Network Visualization
+Metrics
+CSV Output
+Experiments
+```
+The final stage will integrate the complete network, routing, attack,
+security, and analytics layers.
+# Team Integration
+The intended integration order is:
+```text
+┌─────────────────────────────┐
+│ Part 1: Network & Energy   │
+│ Node + Network + Energy     │
+└──────────────┬──────────────┘
+               │
+               ▼
+┌─────────────────────────────┐
+│ Part 2: Packet & Routing   │
+│ Packet + Dijkstra + Router │
+└──────────────┬──────────────┘
+               │
+               ▼
+┌─────────────────────────────┐
+│ Part 3: Security           │
+│ Attacks + Detection        │
+│ + Mitigation               │
+└──────────────┬──────────────┘
+               │
+               ▼
+┌─────────────────────────────┐
+│ Part 4: Simulation & GUI   │
+│ Simulation + UI + Metrics  │
+└─────────────────────────────┘
+```
+Each part should build on the previous part instead of duplicating its
+responsibilities.
+# Current Part 1 Contract
+The most important interfaces for future modules are:
+```python
+network.get_node(node_id)
+network.get_neighbors(node_id)
+network.distance(node_a, node_b)
+network.sink
+node.alive
+node.energy
+node.consume_energy(amount)
+energy_model.transmit(
+    sender,
+    receiver,
+    packet_size,
+    distance,
+)
+```
+These interfaces provide the foundation required by the routing, attack,
+simulation, and GUI layers.
+# Scope Boundary
+## Parts 1 and 2 --- Completed
+Part 1 and Part 2 together implement the network foundation and routing
+layer:
+```text
+Part 1 (Completed):
+  Node, Network, EnergyModel
+Part 2 (Completed):
+  Packet, Dijkstra, RoutingTable, Router
+```
+## Parts 3 and 4 --- Planned
+The following features are not yet implemented and belong to future
+development stages:
+```text
+Part 3 (Planned):
+  Stretch Attack
+  Carousel Attack
+  Attack detection
+  Attack mitigation
+Part 4 (Planned):
+  Simulation engine
+  GUI
+  Network visualization
+  Metrics
+  CSV output
+  Experiments
+```
+Parts 3 and 4 will build on the stable foundation provided by Parts 1
+and 2.
