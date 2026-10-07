@@ -1,923 +1,771 @@
 # Vampires Attack
-A Wireless Sensor Network (WSN) simulator for studying **Vampire
-Attacks**, their effect on network energy consumption, and possible
-detection and mitigation techniques.
-The system models battery-powered sensor nodes that communicate with
-neighboring nodes and forward packets toward a central **Sink/Base
-Station**.
+
+A Wireless Sensor Network (WSN) simulator for studying **Vampire Attacks**, their effect on network energy consumption, and behavior-based detection and mitigation techniques.
+
+The system models battery-powered sensor nodes that communicate with neighboring nodes and forward packets toward a central **Sink/Base Station**.
+
 ## Project Overview
-In a Wireless Sensor Network, sensor nodes have limited battery energy.
-Nodes communicate with one another and forward packets through the
-network until they reach the Sink.
-A Vampire Attack manipulates packet routing so that packets travel
-through unnecessarily long or repeated paths. This causes additional
-packet forwarding and increased energy consumption, eventually reducing
-the lifetime of the network.
-The project is being developed in multiple stages:
+
+In a Wireless Sensor Network, sensor nodes have limited battery energy. Nodes communicate with one another and forward packets through the network until they reach the Sink.
+
+A Vampire Attack manipulates packet routing so that packets travel through unnecessarily long or repeated paths. This causes additional packet forwarding and increased energy consumption, eventually exhausting node batteries and reducing the lifetime of the network.
+
+The project currently has **Parts 1, 2, and 3 implemented**.
+
+Part 3 provides the Vampire Attack and Security layer, including:
+- Attack foundation (`BaseAttack`, `AttackType`, `AttackIntensity`, lifecycle management)
+- Stretch Attack (route elongation detour routing)
+- Carousel Attack (routing cycle / loop injection)
+- Behavior-based attack detection (`AttackDetector`, multi-signal analysis)
+- Suspicious node isolation (`MitigationManager`, blacklist tracking)
+- Route recalculation (`recalculate_route` using Dijkstra)
+- Recovery from isolation (`clear_isolation`, `clear_all`)
+
+Part 4 (Simulation Engine, GUI & Analytics) remains under development.
+
+## Current Status
+
+| Part | Module | Status |
+|---|---|---|
+| Part 1 | Network & Energy | Completed |
+| Part 2 | Packet & Routing | Completed |
+| Part 3 | Vampire Attack & Security | Completed |
+| Part 4 | Simulation, GUI & Analytics | Planned |
+
 ```text
-Network & Energy
-       ↓
-Packet & Routing
-       ↓
-Vampire Attack & Security
-       ↓
-Simulation, GUI & Analytics
+Part 1: Network & Energy (COMPLETED)
+        ↓
+Part 2: Packet & Routing (COMPLETED)
+        ↓
+Part 3: Vampire Attack & Security (COMPLETED)
+        ↓
+Part 4: Simulation, GUI & Analytics (PLANNED)
 ```
-# Current Status
-## Part 1 - Network & Energy
-**Status: Completed**
-Part 1 provides the basic WSN infrastructure that the remaining parts
-will build upon.
-### Implemented
-* Sensor node creation
-* Unique node IDs
-* 2-D node positions
-* Initial battery energy
-* Current battery energy
-* Automatic alive/dead state
-* Energy consumption
-* Communication range
-* Euclidean distance calculation
-* Neighbor discovery
-* Bidirectional neighbor relationships
-* Sink/Base Station designation
-* First-order radio energy model
-* Transmission energy calculation
-* Reception energy calculation
-* Energy consumption during transmission
-* Sent/received packet counters
-* Dead-node protection
-* Node reset functionality
-**##
-How to Run and Check
-1. Open the Project
-cd "C:\Users\Neha\Desktop\Coding\CN\Vampires-Attack"
-2. Check the Current Branch
-git status
-git branch --show-current
-Do not work directly on main.
-3. Verify the Part 2 Files
-core/packet.py
-routing/dijkstra.py
-routing/router.py
-routing/routing_table.py
-tests/test_packet_routing.py
-4. Check Part 2 Imports
-python -c "from core.packet import Packet, PacketStatus; from routing.dijkstra import shortest_path; from routing.router import Router; from routing.routing_table import RoutingTable; print('Part 2 imports OK')"
-Expected:
-Part 2 imports OK
-5. Run Part 1 Tests
+
+## How to Run and Check
+
+### 1. Development & Branch Workflow
+Do not commit directly to main. Create a feature branch for new work unless the team workflow explicitly requires otherwise.
+
+### 2. Verify Imports
+```bash
+python -c "from core.node import Node; from core.network import Network; from energy.energy_model import EnergyModel; from core.packet import Packet, PacketStatus; from routing.dijkstra import shortest_path; from routing.router import Router; from routing.routing_table import RoutingTable; from attacks.base import BaseAttack, AttackType, AttackIntensity; from attacks.stretch import StretchAttack; from attacks.carousel import CarouselAttack; from security.detector import AttackDetector, DetectionResult; from security.mitigation import MitigationManager, IsolatedNetworkView; print('All imports OK')"
+```
+
+### 3. Run the Test Suites
+
+Run individual module test suites:
+```bash
+# Part 1: Network & Energy (96 tests)
 python -m pytest tests/test_network_energy.py -v
-Expected:
-96 passed
-6. Run Part 2 Tests
+
+# Part 2: Packet & Routing (153 tests)
 python -m pytest tests/test_packet_routing.py -v
-Expected:
-153 passed
-7. Run the Complete Test Suite
-python -m pytest tests/ -v
-Expected:
-249 passed
-This is:
-96 Part 1
-153 Part 2
------------
-249 total
-8. Review Changes
-git status
-git diff --stat
-git diff -- core/packet.py routing/dijkstra.py routing/router.py routing/routing_table.py
-git diff -- tests/test_packet_routing.py
-git diff -- README.md
-Run the complete test suite once more before committing:
-python -m pytest tests/ -v
-The final expected result is:
-249 passed
-Testing**
-```text
-96 tests passed
+
+# Part 3: Attack Foundation (82 tests)
+python -m pytest tests/test_attack_base.py -v
+
+# Part 3: Stretch Attack (21 tests)
+python -m pytest tests/test_stretch_attack.py -v
+
+# Part 3: Carousel Attack (23 tests)
+python -m pytest tests/test_carousel_attack.py -v
+
+# Part 3: Behavior-Based Detection (40 tests)
+python -m pytest tests/test_detector.py -v
+
+# Part 3: Mitigation & Isolation (29 tests)
+python -m pytest tests/test_mitigation.py -v
 ```
-The Part 1 test suite passes completely.
-## Part 2 - Packet & Routing
-**Status: Completed**
-Part 2 implements packet representation and shortest-path routing on top
-of the Part 1 foundation.
-### Implemented
-* Packet class with source, destination, route, hop count, TTL, visited
-nodes
-* Packet lifecycle states: IN_TRANSIT, DELIVERED, EXPIRED, DROPPED
-* TTL enforcement --- packets expire when TTL reaches 0
-* Loop prevention --- packets are dropped if they attempt to revisit a
-node
-* Dijkstra shortest-path algorithm using `network.distance()` for
-edge weights
-* Only alive nodes are considered (via `network.get_neighbors()`)
-* RoutingTable for next-hop storage and cache
-* Router integrating Packet, Dijkstra, RoutingTable, Network, and
-EnergyModel
-* `router.find_route(source, destination)` --- returns ordered path
-or None
-* `router.get_next_hop(current_node, destination)` --- returns
-immediate next hop
-* `router.route_packet(packet)` --- forwards packet hop-by-hop to
-destination
-* Energy integration via `EnergyModel.transmit()` at every hop
-* `node.forwarded` counter correctly incremented on intermediate
-relay nodes
-* Dead-node safety at every forwarding step
-* Unreachable destination handling (returns None / drops packet)
-### Testing
-```text
-249 tests passed (96 Part 1 + 153 Part 2)
+
+Run the complete test suite:
+```bash
+python -m pytest tests/ -v
 ```
-All original Part 1 tests continue to pass.
-# Repository Structure
-The repository is being developed incrementally.
+
+Expected result:
+```text
+444 passed
+```
+
+Test suite breakdown:
+- **Part 1 - Network & Energy**: 96 tests
+- **Part 2 - Packet & Routing**: 153 tests
+- **Attack Foundation**: 82 tests
+- **Stretch Attack**: 21 tests
+- **Carousel Attack**: 23 tests
+- **Detection**: 40 tests
+- **Mitigation**: 29 tests
+- **Total**: **444 tests**
+
+---
+
+## Repository Structure
+
 ```text
 Vampires-Attack/
 │
 ├── core/
-│   ├── node.py                    # Part 1 - implemented
-│   ├── network.py                 # Part 1 - implemented
-│   └── packet.py                  # Part 2 - implemented
+│   ├── node.py
+│   ├── network.py
+│   └── packet.py
 │
 ├── energy/
-│   └── energy_model.py            # Part 1 - implemented
+│   └── energy_model.py
 │
 ├── routing/
-│   ├── dijkstra.py                # Part 2 - implemented
-│   ├── router.py                  # Part 2 - implemented
-│   └── routing_table.py           # Part 2 - implemented
+│   ├── dijkstra.py
+│   ├── router.py
+│   └── routing_table.py
 │
 ├── attacks/
-│   ├── stretch.py                 # Part 3 - planned
-│   └── carousel.py                # Part 3 - planned
+│   ├── __init__.py
+│   ├── base.py
+│   ├── stretch.py
+│   └── carousel.py
 │
 ├── security/
-│   ├── detector.py                # Part 3 - planned
-│   └── mitigation.py              # Part 3 - planned
+│   ├── __init__.py
+│   ├── detector.py
+│   └── mitigation.py
 │
 ├── simulation/
-│   └── simulator.py               # Part 4 - planned
+│   └── simulator.py       # Part 4 - planned
 │
-├── gui/                           # Part 4 - planned
+├── gui/                   # Part 4 - planned
 │
-├── metrics/                       # Part 4 - planned
+├── metrics/               # Part 4 - planned
 │
 ├── tests/
-│   ├── test_network_energy.py     # Part 1 tests (96 tests)
-│   └── test_packet_routing.py     # Part 2 tests (141 tests)
+│   ├── test_network_energy.py
+│   ├── test_packet_routing.py
+│   ├── test_attack_base.py
+│   ├── test_stretch_attack.py
+│   ├── test_carousel_attack.py
+│   ├── test_detector.py
+│   └── test_mitigation.py
 │
+├── .gitignore
 └── README.md
 ```
+
+---
+
 # Part 1 Architecture
-Part 1 contains three main components:
+
+Part 1 provides the foundational WSN infrastructure modeling sensor nodes, network topology, and radio energy dissipation.
+
 ```text
-                  ┌──────────────┐
-                  │    Network   │
-                  └──────┬───────┘
-                         │
-              manages topology
-                         │
-          ┌──────────────┴──────────────┐
-          │                             │
-   ┌──────▼──────┐               ┌──────▼──────┐
-   │    Nodes    │               │    Sink     │
-   └──────┬──────┘               └─────────────┘
-          │
-          │ battery state
-          ▼
-   ┌──────────────┐
-   │ EnergyModel  │
-   └──────────────┘
+                  ┌──────────────┐
+                  │    Network   │
+                  └──────┬───────┘
+                         │
+                   manages topology
+                         │
+          ┌──────────────┴──────────────┐
+          │                             │
+    ┌─────▼───────┐               ┌─────▼───────┐
+    │    Nodes    │               │    Sink     │
+    └─────┬───────┘               └─────────────┘
+          │
+          │ battery state
+          ▼
+    ┌──────────────┐
+    │ EnergyModel  │
+    └──────────────┘
 ```
-### Responsibility separation
-| Component     | Responsibility                                      
- |
-| ------------- |
------------------------------------------------------ |
-| `Node`        | Identity, position, energy, neighbors, counters  
-    |
-| `Network`     | Nodes, topology, distance, neighbors, Sink        
-   |
-| `EnergyModel` | Transmission/reception energy and battery
-consumption |
-Part 1 intentionally does **not** contain packet routing,
-Vampire Attack logic, detection, mitigation, simulation, GUI, or
-metrics.
-# 1. Node
-File:
-```text
-core/node.py
-```
+
+### Responsibility Separation
+| Component | Responsibility |
+|---|---|
+| `Node` | Identity, position, energy, neighbors, packet counters |
+| `Network` | Nodes, topology, distance, neighbors, Sink designation |
+| `EnergyModel` | First-order radio model, transmission/reception energy, battery consumption |
+
+Part 1 intentionally does **not** contain packet routing, attack logic, detection, mitigation, simulation, GUI, or metrics.
+
+## 1. Node
+File: `core/node.py`
+
 The `Node` class represents a single battery-powered sensor node.
-## Creating a Node
+
+### Creating a Node
 ```python
 from core.node import Node
+
 node = Node(
-    node_id="N1",
-    x=10,
-    y=20,
-    initial_energy=100.0,
+    node_id="N1",
+    x=10,
+    y=20,
+    initial_energy=100.0,
 )
 ```
+
 The constructor accepts:
-| Parameter        | Description            |
-| ---------------- | ---------------------- |
-| `node_id`        | Unique node identifier |
-| `x`              | X-coordinate           |
-| `y`              | Y-coordinate           |
-| `initial_energy` | Initial battery energy |
-`initial_energy` must be greater than zero.
-## Node Properties
-### Identity
-```python
-node.id
-```
-Returns the node's unique identifier.
-### Position
-```python
-node.x
-node.y
-node.position
-```
-Example:
-```python
-print(node.position)
-```
-Output:
-```text
-(10.0, 20.0)
-```
-The position is later used by `Network` to calculate distances.
-### Energy
-```python
-node.initial_energy
-node.energy
-```
-`initial_energy` stores the battery level when the node was created.
-`energy` stores the currently remaining battery energy.
-Example:
-```python
-print(node.initial_energy)
-print(node.energy)
-```
-## Consuming Energy
-Use:
+| Parameter | Description |
+|---|---|
+| `node_id` | Unique node identifier (string) |
+| `x` | X-coordinate (numeric) |
+| `y` | Y-coordinate (numeric) |
+| `initial_energy` | Initial battery energy (must be > 0) |
+
+### Node Properties
+- **Identity**: `node.id` returns the node's unique identifier.
+- **Position**: `node.x`, `node.y`, and `node.position` return coordinates (e.g. `(10.0, 20.0)`).
+- **Energy**: `node.initial_energy` stores starting battery level; `node.energy` tracks remaining battery energy.
+
+### Consuming Energy
 ```python
 node.consume_energy(amount)
 ```
-Example:
-```python
-node.consume_energy(20)
-```
-If the node initially has:
-```text
-100 J
-```
-the remaining energy becomes:
-```text
-80 J
-```
-Energy can never become negative.
-If a node has `20 J` remaining:
-```python
-node.consume_energy(50)
-```
-results in:
-```text
-energy = 0
-alive = False
-```
-## Alive / Dead State
-The node's state is determined directly from its remaining energy.
+Energy cannot become negative. If consumption exceeds remaining energy, energy becomes 0.0 and `node.alive` becomes `False`.
+
+### Alive / Dead State
 ```python
 node.alive
 ```
-The behavior is:
-```text
-energy > 0  → alive
-energy = 0  → dead
-```
-There is no separate alive flag that can become inconsistent with the
-battery.
-This is important for routing because dead nodes must not be used for
-forwarding.
-## Neighbors
-A node stores its neighboring node IDs:
-```python
-node.neighbors
-```
-Example:
-```text
-{"N2", "N3", "N5"}
-```
-The `Network` class manages the actual topology.
-Normally, routing code should use:
-```python
-network.get_neighbors(node_id)
-```
-rather than manually modifying neighbor relationships.
-## Packet Counters
-Each node maintains three counters:
-```python
-node.sent
-node.received
-node.forwarded
-```
-Initial values:
-```text
-sent      = 0
-received  = 0
-forwarded = 0
-```
-`EnergyModel.transmit()` automatically increments:
-```python
-sender.sent
-receiver.received
-```
-The `forwarded` counter is intentionally not handled by
-`EnergyModel`.
-The routing/simulation layer is responsible for deciding when a packet
-was actually forwarded.
-## Reset
-A node can be restored to its initial state:
-```python
-node.reset()
-```
-This restores:
-```text
-energy    → initial_energy
-sent      → 0
-received  → 0
-forwarded → 0
-neighbors → empty
-```
-After resetting nodes, the network should rebuild its neighbor
-relationships:
-```python
-network.update_neighbors()
-```
-# 2. Network
-File:
-```text
-core/network.py
-```
-The `Network` class manages the WSN topology.
-Its responsibilities are:
-* Storing nodes
-* Retrieving nodes
-* Communication range
-* Distance calculation
-* Neighbor discovery
-* Bidirectional neighbors
-* Sink/Base Station
-## Creating a Network
-```python
-from core.network import Network
-network = Network(
-    communication_range=50
-)
-```
-The communication range determines whether two nodes can directly
-communicate.
-Two nodes are neighbors when:
-```text
-distance <= communication_range
-```
-## Adding Nodes
-```python
-network.add_node(node)
-```
-Example:
-```python
-from core.node import Node
-from core.network import Network
-network = Network(communication_range=50)
-n1 = Node("N1", 0, 0, 100)
-n2 = Node("N2", 30, 40, 100)
-network.add_node(n1)
-network.add_node(n2)
-```
-Nodes are stored by their IDs.
-## Getting a Node
-```python
-node = network.get_node("N1")
-```
-If the node exists, the corresponding `Node` object is returned.
-If the node does not exist:
-```text
-None
-```
-is returned.
-## Distance Calculation
-Use:
-```python
-network.distance(node_a, node_b)
-```
-The method accepts either `Node` objects or node IDs.
-Examples:
-```python
-distance = network.distance(n1, n2)
-```
-or:
-```python
-distance = network.distance("N1", "N2")
-```
-The distance is calculated using Euclidean distance:
-```text
-distance = √((x1 - x2)² + (y1 - y2)²)
-```
-For example:
-```text
-N1 = (0, 0)
-N2 = (3, 4)
-distance = 5
-```
-The routing layer should use this existing method rather than
-implementing another distance calculation.
-# Neighbor Discovery
-After adding nodes:
-```python
-network.update_neighbors()
-```
-The network checks every pair of nodes and creates bidirectional
-neighbor relationships for nodes within communication range.
-Example:
-```text
-N1 <------> N2
-```
-results in:
-```python
-N1.neighbors == {"N2"}
-N2.neighbors == {"N1"}
-```
-Calling `update_neighbors()` rebuilds the topology and removes stale
-neighbor relationships.
-# Getting Neighbors
-Use:
-```python
-neighbors = network.get_neighbors("N1")
-```
-This returns a list of **alive `Node` objects**.
-Example:
-```python
-for neighbor in network.get_neighbors("N1"):
-    print(neighbor.id)
-```
-The routing layer can directly access:
-```python
-neighbor.id
-neighbor.position
-neighbor.energy
-neighbor.alive
-```
-# Dead Nodes
-Dead nodes are not removed from the network.
-They remain in:
-```python
-network.nodes
-```
-This allows future simulation and analytics code to inspect dead nodes.
-However, dead nodes are excluded from:
-```python
-network.get_neighbors(...)
-```
-For example:
-```text
-N1 -------- N2 -------- N3
-                       DEAD
-```
-If N3 has zero energy:
-```python
-network.get_neighbors("N2")
-```
-will not return N3.
-This allows the routing layer to work with currently usable neighbors.
-# Sink / Base Station
-The Sink is represented using a normal `Node`.
-Example:
-```python
-sink = Node(
-    node_id="SINK",
-    x=100,
-    y=100,
-    initial_energy=1000,
-)
-network.add_node(sink)
-network.set_sink("SINK")
-```
-The Sink can then be accessed using:
-```python
-network.sink
-```
-Example:
-```python
-print(network.sink.id)
-```
-The Sink does not require a separate Node class.
-# 3. Energy Model
-File:
-```text
-energy/energy_model.py
-```
-The `EnergyModel` implements the first-order radio energy model.
-## Transmission Energy
-The transmission energy is:
-```text
-E_tx = E_elec × packet_size
-     + E_amp × packet_size × distance²
-```
-## Reception Energy
-The reception energy is:
-```text
-E_rx = E_elec × packet_size
-```
-## Default Constants
-The current implementation uses:
-```text
-E_elec = 50e-9 J/bit
-E_amp  = 100e-12 J/bit/m²
-```
-These values can be configured when creating an `EnergyModel`.
-## Creating an Energy Model
-```python
-from energy.energy_model import EnergyModel
-energy_model = EnergyModel()
-```
-Custom values can be provided:
-```python
-energy_model = EnergyModel(
-    e_elec=50e-9,
-    e_amp=100e-12,
-)
-```
-# Transmission Energy Calculation
-Use:
-```python
-tx_energy = energy_model.transmission_energy(
-    packet_size,
-    distance,
-)
-```
-Example:
-```python
-tx_energy = energy_model.transmission_energy(
-    packet_size=4000,
-    distance=10,
-)
-```
-# Reception Energy Calculation
-Use:
-```python
-rx_energy = energy_model.reception_energy(
-    packet_size
-)
-```
-Example:
-```python
-rx_energy = energy_model.reception_energy(4000)
-```
-# Performing a Transmission
-The main method that future routing and simulation code should use is:
-```python
-energy_model.transmit(
-    sender,
-    receiver,
-    packet_size,
-    distance,
-)
-```
-Example:
-```python
-distance = network.distance(
-    sender,
-    receiver,
-)
-result = energy_model.transmit(
-    sender=sender,
-    receiver=receiver,
-    packet_size=4000,
-    distance=distance,
-)
-```
-The transmission operation:
-1. Checks that the sender is alive.
-2. Checks that the receiver is alive.
-3. Calculates transmission energy.
-4. Calculates reception energy.
-5. Deducts energy from the sender.
-6. Deducts energy from the receiver.
-7. Increments `sender.sent`.
-8. Increments `receiver.received`.
-9. Returns a `TransmissionResult`.
-# TransmissionResult
-`transmit()` returns a `TransmissionResult`.
-Example:
+Derived directly from remaining energy:
+- `energy > 0` → alive (`True`)
+- `energy == 0` → dead (`False`)
+
+Dead nodes are strictly excluded from forwarding.
+
+### Neighbors & Packet Counters
+- `node.neighbors`: Set of neighboring node IDs.
+- `node.sent`, `node.received`, `node.forwarded`: Integers tracking traffic statistics.
+- `node.reset()`: Restores `energy` to `initial_energy`, clears counters to 0, and clears `neighbors`.
+
+---
+
+## 2. Network
+File: `core/network.py`
+
+The `Network` class manages the WSN topology:
+- Storing and retrieving nodes (`add_node`, `get_node`)
+- Distance calculation using Euclidean distance:
+  $$\text{distance} = \sqrt{(x_1 - x_2)^2 + (y_1 - y_2)^2}$$
+- Neighbor discovery based on communication range: two nodes are neighbors if $\text{distance} \le \text{communication\_range}$.
+- Bidirectional neighbor relationships via `network.update_neighbors()`.
+- Retrieving alive neighbors via `network.get_neighbors(node_id)`.
+- Sink designation via `network.set_sink(node_id)` and retrieval via `network.sink`.
+
+### Dead Nodes in Network
+Dead nodes remain registered in `network.nodes` for telemetry, analytics, and inspection, but are automatically excluded from `network.get_neighbors(node_id)`.
+
+---
+
+## 3. Energy Model
+File: `energy/energy_model.py`
+
+Implements the first-order radio model:
+
+### Transmission Energy
+$$E_{tx} = E_{elec} \times \text{packet\_size} + E_{amp} \times \text{packet\_size} \times \text{distance}^2$$
+
+### Reception Energy
+$$E_{rx} = E_{elec} \times \text{packet\_size}$$
+
+### Default Constants
+- $E_{elec} = 50 \text{ nJ/bit} = 50 \times 10^{-9} \text{ J/bit}$
+- $E_{amp} = 100 \text{ pJ/bit/m}^2 = 100 \times 10^{-12} \text{ J/bit/m}^2$
+
+### Performing a Transmission
 ```python
 result = energy_model.transmit(
-    sender,
-    receiver,
-    4000,
-    distance,
+    sender=sender,
+    receiver=receiver,
+    packet_size=4000,
+    distance=distance,
 )
 ```
-The result provides:
-```python
-result.tx_energy
-result.rx_energy
-result.sender_alive
-result.receiver_alive
-```
-This allows the future simulation layer to determine the energy consumed
-and whether either node died as a result of the transmission.
-# Dead Node Protection
-The EnergyModel prevents transmissions involving dead nodes.
-If the sender is dead:
-```text
-NodeDeadError
-```
-is raised.
-If the receiver is dead:
-```text
-NodeDeadError
-```
-is raised.
-Example:
-```python
-from energy.energy_model import NodeDeadError
-try:
-    result = energy_model.transmit(
-        sender,
-        receiver,
-        4000,
-        distance,
-    )
-except NodeDeadError:
-    print("Transmission failed")
-```
-# How Part 2 Uses Part 1
-Part 2 is responsible for packet handling and routing.
-The expected Part 2 modules are:
-```text
-core/packet.py
-routing/dijkstra.py
-routing/router.py
-routing/routing_table.py
-```
-Part 2 should **build on the existing Part 1 implementation**.
-It should not duplicate Node, Network, distance, or energy
-functionality.
-The intended flow is:
-```text
-                 Packet
-                    │
-                    ▼
-                 Router
-                    │
-                    ▼
-          Network.get_neighbors()
-                    │
-                    ▼
-              Select Next Hop
-                    │
-                    ▼
-           Network.distance()
-                    │
-                    ▼
-          EnergyModel.transmit()
-                    │
-                    ▼
-             Node Energy
-```
-# Example Routing Flow
-Suppose the routing algorithm determines:
-```text
-N1 → N3 → N5 → SINK
-```
-For the first hop:
-```python
-sender = network.get_node("N1")
-receiver = network.get_node("N3")
-```
-Get the distance from the Network:
-```python
-distance = network.distance(
-    sender,
-    receiver,
-)
-```
-Then perform the transmission through the EnergyModel:
-```python
-result = energy_model.transmit(
-    sender=sender,
-    receiver=receiver,
-    packet_size=4000,
-    distance=distance,
-)
-```
-The important separation is:
-```text
-Router
-    → decides WHERE the packet goes
-Network
-    → provides topology and distance
-EnergyModel
-    → calculates and consumes energy
-Node
-    → stores the resulting state
-```
-The routing layer should decide the receiver. It should not reimplement
-the Network or EnergyModel.
-# Part 2 Integration Contract
-The following interfaces are already available to the routing
-implementation.
-## Node
-```python
-node.id
-node.x
-node.y
-node.position
-node.initial_energy
-node.energy
-node.alive
-node.neighbors
-node.sent
-node.received
-node.forwarded
-node.consume_energy(amount)
-node.add_neighbor(node_id)
-node.remove_neighbor(node_id)
-node.reset()
-```
-## Network
-```python
-network.nodes
-network.sink
-network.communication_range
-network.add_node(node)
-network.get_node(node_id)
-network.set_sink(node_id)
-network.distance(
-    node_a,
-    node_b,
-)
-network.update_neighbors()
-network.get_neighbors(node_id)
-```
-## EnergyModel
-```python
-energy_model.e_elec
-energy_model.e_amp
-energy_model.transmission_energy(
-    packet_size,
-    distance,
-)
-energy_model.reception_energy(
-    packet_size,
-)
-energy_model.transmit(
-    sender,
-    receiver,
-    packet_size,
-    distance,
-)
-```
-# Integration Rules for Part 2
-### 1. Do not create another Node class
-Use:
-```python
-from core.node import Node
-```
-### 2. Do not create another Network class
-Use:
-```python
-from core.network import Network
-```
-### 3. Do not implement another distance function
-Use:
-```python
-network.distance(...)
-```
-### 4. Do not manually calculate transmission energy
-Use:
-```python
-energy_model.transmission_energy(...)
-```
-or:
-```python
-energy_model.transmit(...)
-```
-### 5. Do not manually deduct battery energy
-Use:
-```python
-energy_model.transmit(...)
-```
-The EnergyModel already handles sender and receiver energy consumption.
-### 6. Do not route through dead nodes
-Use:
-```python
-network.get_neighbors(node_id)
-```
-This returns alive neighboring nodes.
-### 7. Do not update `forwarded` inside EnergyModel
-`forwarded` belongs to the routing/simulation layer because routing
-determines whether a packet was actually forwarded.
-### 8. Avoid unnecessary changes to Part 1
-Treat the existing Node, Network, and EnergyModel interfaces as the
-integration contract.
-If Part 2 genuinely requires an interface change, coordinate the change
-instead of independently redesigning Part 1.
-# Complete Part 1 Example
-The following demonstrates how the three Part 1 components work
-together:
+The operation:
+1. Verifies both sender and receiver are alive (raises `NodeDeadError` if either is dead).
+2. Calculates $E_{tx}$ and $E_{rx}$.
+3. Deducts energy from sender and receiver batteries.
+4. Increments `sender.sent` and `receiver.received`.
+5. Returns a `TransmissionResult` with consumed energy and alive flags.
+
+---
+
+## Complete Part 1 Example
 ```python
 from core.node import Node
 from core.network import Network
 from energy.energy_model import EnergyModel
+
 network = Network(communication_range=50)
 n1 = Node("N1", 0, 0, 100)
 n2 = Node("N2", 30, 40, 100)
-sink = Node(
-    "SINK",
-    60,
-    40,
-    1000,
-)
+sink = Node("SINK", 60, 40, 1000)
+
 network.add_node(n1)
 network.add_node(n2)
 network.add_node(sink)
 network.set_sink("SINK")
 network.update_neighbors()
+
 energy_model = EnergyModel()
 sender = network.get_node("N1")
 receiver = network.get_node("N2")
-distance = network.distance(
-    sender,
-    receiver,
-)
+distance = network.distance(sender, receiver)
+
 result = energy_model.transmit(
-    sender=sender,
-    receiver=receiver,
-    packet_size=4000,
-    distance=distance,
+    sender=sender,
+    receiver=receiver,
+    packet_size=4000,
+    distance=distance,
 )
-print(result)
-print(sender.energy)
-print(receiver.energy)
+
+print(f"Tx Energy: {result.tx_energy} J, Rx Energy: {result.rx_energy} J")
+print(f"N1 Energy: {sender.energy} J, N2 Energy: {receiver.energy} J")
 ```
-In Part 2, the manually selected receiver will be replaced by the next
-hop selected by the routing algorithm.
+
+---
+
+# Part 2 Architecture
+
+Part 2 implements packet representation, Dijkstra shortest-path computation, routing tables, and end-to-end hop-by-hop forwarding.
+
+## How Part 2 Uses Part 1
+Part 2 builds directly upon Part 1 without duplicating nodes, topology, or energy calculations:
+
+```text
+                  Packet
+                    │
+                    ▼
+                  Router
+                    │
+                    ▼
+          Network.get_neighbors()
+                    │
+                    ▼
+             Select Next Hop
+                    │
+                    ▼
+            Network.distance()
+                    │
+                    ▼
+          EnergyModel.transmit()
+                    │
+                    ▼
+               Node Energy
+```
+
+## Part 2 API Reference
+
+### 1. Packet (`core/packet.py`)
+```python
+from core.packet import Packet, PacketStatus
+
+packet = Packet(
+    source="N1",
+    destination="SINK",
+    ttl=10,            # max hops (default: 50)
+    packet_size=4000,  # bits (default: 4000)
+)
+
+packet.source          # "N1"
+packet.destination     # "SINK"
+packet.route           # ("N1",) (grows as packet advances)
+packet.current_node    # "N1"
+packet.hops            # 0
+packet.ttl             # 10
+packet.visited         # {"N1"}
+packet.status          # PacketStatus.IN_TRANSIT
+packet.advance("N2")   # Move to next hop, increments hops, decrements ttl
+packet.mark_dropped()  # Explicitly drop
+packet.mark_expired()  # Explicitly expire when TTL reaches 0
+```
+
+Packet lifecycle states: `IN_TRANSIT`, `DELIVERED`, `EXPIRED`, `DROPPED`.
+
+### 2. Dijkstra (`routing/dijkstra.py`)
+```python
+from routing.dijkstra import shortest_path
+
+path = shortest_path(network, "N1", "SINK")
+# => ("N1", "N2", "N3", "SINK") or None
+```
+Uses `network.distance()` for edge weights and filters dead nodes via `network.get_neighbors()`.
+
+### 3. RoutingTable (`routing/routing_table.py`)
+```python
+from routing.routing_table import RoutingTable
+
+table = RoutingTable()
+table.set_next_hop("SINK", "N2")
+next_hop = table.get_next_hop("SINK")  # "N2"
+has_route = table.has_route("SINK")    # True
+table.remove_route("SINK")
+table.clear()
+```
+
+### 4. Router (`routing/router.py`)
+```python
+from routing.router import Router
+
+router = Router(network, energy_model)
+route = router.find_route("N1", "SINK")
+next_hop = router.get_next_hop("N1", "SINK")
+
+packet = Packet("N1", "SINK", ttl=10)
+router.route_packet(packet)
+assert packet.delivered  # True
+```
+
+### Forwarding Counters
+For a route `N1 → N2 → N3 → SINK`:
+| Node | `sent` | `received` | `forwarded` |
+|---|---|---|---|
+| N1 | 1 | 0 | 0 |
+| N2 | 1 | 1 | 1 |
+| N3 | 1 | 1 | 1 |
+| SINK | 0 | 1 | 0 |
+
+`sent` and `received` are incremented by `EnergyModel.transmit()`. `forwarded` is incremented by `Router` on intermediate relay nodes.
+
+---
+
+# Part 3 Architecture: Vampire Attack & Security
+
+Part 3 implements the complete Vampire Attack generation, behavior-based detection, and mitigation isolation layer.
+
+## End-to-End Security Flow
+
+```text
+Normal Dijkstra Route
+        ↓
+Vampire Attack
+        ↓
+Abnormal Route Behavior
+        ↓
+Behavior-Based Detection
+        ↓
+Suspicious Node Identified
+        ↓
+Node Isolation
+        ↓
+Dijkstra Route Recalculation
+        ↓
+Safe Route
+```
+
+### Security Flow Explanation
+1. **Normal Routing**: Under benign conditions, packets follow optimal shortest paths determined by Dijkstra's algorithm.
+2. **Vampire Attack**: A malicious node intercepts or manipulates routes, injecting detours (Stretch Attack) or cycles (Carousel Attack) to exhaust network batteries.
+3. **Abnormal Route Behavior**: Manipulated routes manifest observable anomalies: inflated hop counts, packet forwarding spikes, repeated node traversals, and accelerated battery depletion.
+4. **Behavior-Based Detection**: `AttackDetector` analyzes telemetry metrics against anomaly thresholds and computes a composite suspicion score without needing knowledge of attack classes.
+5. **Suspicious Node Identified**: Nodes exceeding the detection threshold are flagged with transparent diagnostic evidence in a `DetectionResult`.
+6. **Node Isolation**: `MitigationManager` blacklists identified malicious nodes, preserving physical nodes intact for logging and analytics.
+7. **Dijkstra Route Recalculation**: `recalculate_route` utilizes `IsolatedNetworkView` to re-run Dijkstra routing, routing packets safely around isolated nodes.
+8. **Safe Route**: Subsequent traffic travels across verified healthy nodes with battery depletion halted.
+
+---
+
+## 1. Attack Foundation
+File: `attacks/base.py`
+
+`attacks/base.py` provides the core abstractions, taxonomies, parameter validation, and lifecycle management for all Vampire Attacks.
+
+### Core Types & Enums
+- **`AttackType` (Enum)**:
+  - `AttackType.STRETCH`: Stretch Vampire Attack.
+  - `AttackType.CAROUSEL`: Carousel Vampire Attack.
+- **`AttackIntensity` (Enum)**:
+  - `AttackIntensity.LOW`: Conservative attack intensity.
+  - `AttackIntensity.MEDIUM`: Moderate attack intensity.
+  - `AttackIntensity.HIGH`: Aggressive attack intensity.
+
+### `BaseAttack` Class
+The foundational base class for concrete attack implementations.
+
+Parameters:
+- `attacker_node_id` (str): Unique identifier of the malicious node (must be non-empty string).
+- `attack_type` (`AttackType` | str): Attack classification.
+- `intensity` (`AttackIntensity` | str): Attack intensity level.
+- `start_time` (float): Simulation timestamp when attack becomes active (must be $\ge 0$).
+- `duration` (float): Active simulation duration (must be $\ge 0$).
+
+Properties:
+- `attacker_node_id`: Node ID of the malicious sensor node.
+- `attack_type`: `AttackType` enum value.
+- `intensity`: `AttackIntensity` enum value.
+- `start_time`: Numeric start timestamp.
+- `duration`: Active duration window.
+- `end_time`: Derived simulation end timestamp (`start_time + duration`).
+
+### Attack Lifecycle & Validation
+- **Configuration Validation**: Strict type checking and value validation; raises `TypeError` or `ValueError` on empty IDs, invalid enum names, or negative timestamps.
+- **Active Interval Handling**:
+  - `is_active(current_time)` returns `True` if and only if:
+    $$\text{start\_time} \le \text{current\_time} < \text{end\_time}$$
+  - Returns `False` if `current_time < start_time` or `current_time >= end_time`.
+  - **Special Case**: When `duration == 0`, the attack is inactive and `is_active(current_time)` returns `False` for all timestamps.
+
+```python
+from attacks.base import BaseAttack, AttackType, AttackIntensity
+
+attack = BaseAttack(
+    attacker_node_id="N7",
+    attack_type=AttackType.STRETCH,
+    intensity=AttackIntensity.MEDIUM,
+    start_time=10.0,
+    duration=50.0,
+)
+
+assert attack.end_time == 60.0
+assert not attack.is_active(5.0)   # Before start
+assert attack.is_active(25.0)      # Active interval
+assert not attack.is_active(60.0)  # After end
+```
+
+---
+
+## 2. Stretch Attack
+File: `attacks/stretch.py`
+
+Implements the **Stretch Vampire Attack** (Vasserman & Hopper, 2013).
+
+### Attack Mechanism
+- Artificially manipulates a valid packet route so that packets take an unnecessarily elongated path.
+- Routes packets through extra innocent relay nodes, draining their batteries via redundant transmissions and receptions.
+- Uses real nodes and valid wireless links from the network topology (`Network`).
+- Strictly preserves source node as the first hop and destination node as the final hop.
+- Avoids invalid, non-existent, or dead node IDs.
+- Respects Time-To-Live (TTL) and hop budget constraints.
+- Safely falls back to the original route if the attack is inactive, if the attacker is the destination, if network information is missing, or if no valid detour within TTL exists.
+
+### Intensity Scaling
+- **`LOW`**: Minimal inflation; selects the shortest valid detour strictly longer than the optimal route.
+- **`MEDIUM`**: Moderate inflation; selects a median-length valid detour path.
+- **`HIGH`**: Maximum inflation; selects the longest available simple path within the TTL budget.
+
+### Available Interface
+```python
+from attacks.stretch import StretchAttack
+from attacks.base import AttackIntensity
+
+stretch = StretchAttack(
+    attacker_node_id="N2",
+    intensity=AttackIntensity.MEDIUM,
+    start_time=0.0,
+    duration=100.0,
+)
+
+# Apply to a route list
+stretched_route = stretch.manipulate_route(
+    route=["N1", "N2", "N3", "SINK"],
+    network=network,
+    current_time=10.0,
+    ttl=20,
+)
+
+# Apply to either a route list or a Packet instance
+manipulated = stretch.apply(
+    target=packet_or_route,
+    network=network,
+    current_time=10.0,
+    ttl=20,
+)
+```
+
+---
+
+## 3. Carousel Attack
+File: `attacks/carousel.py`
+
+Implements the **Carousel Vampire Attack** (Vasserman & Hopper, 2013).
+
+### Attack Mechanism
+- Deliberately introduces repeated routing cycles (loops) involving the attacker node and valid adjacent neighboring nodes.
+- Packets repeatedly traverse back and forth across neighboring nodes (`attacker → partner → attacker`), multiplying energy depletion in localized clusters.
+- Strictly bounds repetitions by the packet's remaining TTL budget to prevent infinite loops.
+- Preserves packet integrity: source remains first hop, destination remains final hop.
+- Reverts safely to the unmanipulated route when inactive, when attacker is the destination, when TTL is insufficient for a 2-hop loop, or when no alive neighbor partner is available.
+
+### Intensity Scaling
+- Each loop repetition (`partner → attacker`) adds exactly 2 hops.
+- **`LOW`**: Minimal cycle inflation; injects 1 extra cycle repetition (2 additional hops).
+- **`MEDIUM`**: Moderate cycle inflation; consumes approximately half of the remaining TTL budget.
+- **`HIGH`**: Maximum cycle inflation; consumes the maximum allowable loop repetitions within the TTL budget.
+
+### Available Interface
+```python
+from attacks.carousel import CarouselAttack
+from attacks.base import AttackIntensity
+
+carousel = CarouselAttack(
+    attacker_node_id="N2",
+    intensity=AttackIntensity.HIGH,
+    start_time=0.0,
+    duration=100.0,
+)
+
+# Manipulate route
+looped_route = carousel.manipulate_route(
+    route=["N1", "N2", "N3", "SINK"],
+    network=network,
+    current_time=5.0,
+    ttl=15,
+)
+# Result: ['N1', 'N2', 'N3', 'N2', 'N3', 'N2', ..., 'N3', 'SINK']
+
+# Apply to route or Packet
+manipulated = carousel.apply(
+    target=packet_or_route,
+    network=network,
+    current_time=5.0,
+    ttl=15,
+)
+```
+
+---
+
+## 4. Attack Detection
+File: `security/detector.py`
+
+Implements **behavior-based anomaly detection** for Vampire Attacks. It does **not** inspect attack classes directly, but rather observes runtime telemetry anomalies across the network.
+
+### Detection Signals
+`AttackDetector` evaluates four distinct behavioral signals:
+1. **Abnormal Forwarding Count**: Detects relay flooding when `node.forwarded` exceeds `forwarding_threshold`.
+2. **Hop Inflation**: Compares observed route hop count against the optimal Dijkstra shortest path. Flagged when $\text{observed\_hops} / \text{optimal\_hops} \ge \text{hop\_inflation\_threshold}$.
+3. **Route Repetition / Cycles**: Detects carousel loops when a node appears multiple times in a route (`route.count(node_id) > 1`).
+4. **Abnormal Energy Depletion**: Detects anomalous battery drain when $(\text{initial\_energy} - \text{energy}) / \text{initial\_energy} \ge \text{energy\_threshold}$.
+
+### Suspicion Score & DetectionResult
+Individual signal scores are normalized to $[0.0, 1.0]$ and combined into a weighted composite suspicion score:
+$$\text{suspicion\_score} = (w_f \cdot S_f) + (w_h \cdot S_h) + (w_c \cdot S_c) + (w_e \cdot S_e)$$
+The score is strictly normalized between 0.0 and 1.0. If `suspicion_score >= detection_threshold`, the node is flagged as suspicious.
+
+`DetectionResult` fields:
+- `node_id` (str): Identifier of inspected node.
+- `suspicious` (bool): Whether suspicion score meets or exceeds threshold.
+- `suspicion_score` (float): Normalized score in $[0.0, 1.0]$.
+- `reasons` (list[str]): Breached anomaly signals (`abnormal_forwarding`, `hop_inflation`, `route_cycle`, `abnormal_energy`).
+- `signals` (dict[str, float]): Normalized sub-scores for each metric.
+- `details` (dict[str, Any]): Raw diagnostic measurements (e.g. hop counts, ratios, cycle counts).
+
+### Detector APIs
+```python
+from security.detector import AttackDetector
+
+detector = AttackDetector(
+    forwarding_threshold=10,
+    hop_inflation_threshold=1.5,
+    energy_threshold=0.4,
+    detection_threshold=0.5,
+)
+
+# 1. Analyze single node
+result = detector.analyze_node(
+    node_id="N2",
+    network=network,
+    route=observed_route,
+)
+
+# 2. Inspect all nodes appearing in a route
+route_results = detector.detect_from_route(
+    route=observed_route,
+    network=network,
+)
+
+# 3. Network-wide batch detection across all nodes
+all_results = detector.detect(
+    network=network,
+    routes=[observed_route],
+)
+```
+
+---
+
+## 5. Attack Mitigation
+File: `security/mitigation.py`
+
+`MitigationManager` provides automated quarantine, blacklisting, and route recalculation to neutralize Vampire Attacks without compromising physical network state.
+
+### Mitigation Principles
+- **Consumes `DetectionResult`**: Directly ingests detection outcomes via `apply_detection()` and `apply_detections()`.
+- **Node Isolation & Blacklisting**: Maintains an independent blacklist set (`_isolated_nodes`).
+- **Non-Destructive**: Does **not** delete node objects and does **not** alter node battery levels. Nodes remain intact for logging, topology metrics, and visualization.
+- **Routing Exclusion**: Completely excludes isolated nodes from participating in routing.
+- **Dijkstra Route Recalculation**: Reroutes packets around isolated nodes using the existing Dijkstra implementation.
+- **Multi-Node & Idempotent**: Supports isolating multiple suspicious nodes simultaneously; redundant isolation calls are idempotent.
+- **Recovery & De-isolation**: Supports restoring nodes back to active routing via `clear_isolation(node_id)` and `clear_all()`.
+
+### IsolatedNetworkView
+`IsolatedNetworkView` is a lightweight read-only proxy that wraps an existing `Network` instance:
+- `get_node(node_id)`: Returns `None` if `node_id` is isolated.
+- `get_neighbors(node_id)`: Returns only alive, non-isolated neighbors.
+- `distance(a, b)`: Delegates distance calculation to the underlying network.
+
+This allows Dijkstra shortest path calculation to compute bypass routes strictly avoiding isolated nodes without duplicating Dijkstra or mutating the physical network.
+
+### Mitigation Manager APIs
+```python
+from security.mitigation import MitigationManager
+
+manager = MitigationManager()
+
+# Isolate manually or from detection result
+record = manager.isolate_node("N2", reasons=["hop_inflation"])
+manager.apply_detection(detection_result)
+
+# Query isolation status
+assert manager.is_isolated("N2")
+isolated_set = manager.get_isolated_nodes()
+
+# Recalculate safe route bypassing isolated nodes
+safe_route = manager.recalculate_route(
+    network_or_router=network,
+    source="N1",
+    destination="SINK",
+)
+
+# Recovery / De-isolation
+manager.clear_isolation("N2")
+manager.clear_all()
+```
+
+---
+
 # Testing
-Run the complete test suite using:
+
+Run the complete test suite:
 ```bash
 python -m pytest tests/ -v
 ```
-Current result:
+
+Current test results:
 ```text
-237 passed  (96 Part 1 + 141 Part 2)
+444 passed
 ```
-Run Part 1 tests only:
-```bash
-python -m pytest tests/test_network_energy.py -v
-```
-Run Part 2 tests only:
-```bash
-python -m pytest tests/test_packet_routing.py -v
-```
-The test suite covers:
-* Node creation
-* Node validation
-* Node position
-* Initial and current energy
-* Energy consumption
-* Energy depletion
-* Energy non-negativity
-* Neighbor management
-* Node reset
-* Network node management
-* Distance calculation
-* Communication range
-* Communication boundary
-* Bidirectional neighbors
-* Neighbor rebuilding
-* Dead-node exclusion
-* Sink configuration
-* Transmission energy
-* Reception energy
-* Transmission operation
-* Sent/received counters
-* Dead-node protection
-* Part 1 integration
+
+### Complete Test Breakdown
+| Module | Test File | Tests Passed |
+|---|---|---|
+| Part 1: Network & Energy | `tests/test_network_energy.py` | 96 |
+| Part 2: Packet & Routing | `tests/test_packet_routing.py` | 153 |
+| Part 3: Attack Foundation | `tests/test_attack_base.py` | 82 |
+| Part 3: Stretch Attack | `tests/test_stretch_attack.py` | 21 |
+| Part 3: Carousel Attack | `tests/test_carousel_attack.py` | 23 |
+| Part 3: Attack Detection | `tests/test_detector.py` | 40 |
+| Part 3: Attack Mitigation | `tests/test_mitigation.py` | 29 |
+| **Total** | | **444 passed** |
+
+---
+
 # Development Roadmap
+
 ## Part 1 - Network & Energy
 **Status: Completed**
-Implemented:
+Implemented modules:
 ```text
 core/node.py
 core/network.py
 energy/energy_model.py
 ```
+
 ## Part 2 - Packet & Routing
 **Status: Completed**
 Implemented modules:
@@ -927,194 +775,77 @@ routing/dijkstra.py
 routing/router.py
 routing/routing_table.py
 ```
-Implemented functionality:
-* Packet source, destination, route, hop count, TTL, visited nodes
-* Packet lifecycle: IN_TRANSIT, DELIVERED, EXPIRED, DROPPED
-* Dijkstra shortest-path using `network.distance()` for edge weights
-* Dead-node exclusion via `network.get_neighbors()`
-* RoutingTable with set/get/remove/has_route/clear
-* Router with `find_route`, `get_next_hop`, `route_packet`
-* Packet forwarding with `EnergyModel.transmit()` at every hop
-* `node.forwarded` counter on intermediate relay nodes
-* TTL enforcement and expiry
-* Loop prevention via visited set
-* Unreachable destination handling (None / DROPPED)
-* Dead-node safety at every forwarding step
-### Part 2 API Reference
-#### Packet
-```python
-from core.packet import Packet, PacketStatus
-packet = Packet(
-    source="N1",
-    destination="SINK",
-    ttl=10,           # max hops (default: 50)
-    packet_size=4000, # bits (default: 4000)
-)
-packet.source          # "N1"
-packet.destination     # "SINK"
-packet.route           # \("N1"\)  (grows as packet moves)
-packet.current_node    # "N1"
-packet.hops            # 0
-packet.ttl             # 10
-packet.visited         # {"N1"}
-packet.in_transit      # True
-packet.delivered       # False
-packet.expired         # False
-packet.dropped         # False
-packet.status          # PacketStatus.IN_TRANSIT
-packet.advance("N2")   # move to next hop
-packet.mark_dropped()  # explicitly drop
-packet.mark_expired()  # explicitly expire
-```
-#### Dijkstra
-```python
-from routing.dijkstra import shortest_path
-path = shortest_path(network, "N1", "SINK")
-# => \("N1", "N2", "N3", "SINK"\)  or  None
-```
-Returns `None` if source/destination is nonexistent, dead, or
-unreachable.
-#### RoutingTable
-```python
-from routing.routing_table import RoutingTable
-table = RoutingTable()
-table.set_next_hop("SINK", "N3")   # store route
-table.get_next_hop("SINK")         # => "N3"
-table.has_route("SINK")            # => True
-table.remove_route("SINK")
-table.clear()
-```
-#### Router
-```python
-from routing.router import Router
-router = Router(network, energy_model)
-# Find full path
-route = router.find_route("N1", "SINK")
-# => \("N1", "N2", "N3", "SINK"\)  or  None
-# Next hop only
-next_hop = router.get_next_hop("N1", "SINK")
-# => "N2"
-# Route a packet end-to-end
-from core.packet import Packet
-packet = Packet("N1", "SINK", ttl=10)
-router.route_packet(packet)
-assert packet.delivered  # True
-```
-#### Forwarding Counters
-For a route N1 → N2 → N3 → SINK:
-| Node | `sent` | `received` | `forwarded` |
-|------|--------|------------|-------------|
-| N1   | 1      | 0          | 0           |
-| N2   | 1      | 1          | 1           |
-| N3   | 1      | 1          | 1           |
-| SINK | 0      | 1          | 0           |
-`sent` and `received` are managed by `EnergyModel.transmit()`.
-`forwarded` is managed by the Router.
-### Testing
-```text
-249 tests passed (96 Part 1 + 153 Part 2)
-```
-Run the full test suite:
-```bash
-python -m pytest tests/ -v
-```
+
 ## Part 3 - Vampire Attack & Security
-**Status: Planned**
-Expected functionality:
+**Status: Completed**
+Implemented modules:
 ```text
-Stretch Attack
-Carousel Attack
-Attack Detection
-Attack Mitigation
+attacks/__init__.py
+attacks/base.py
+attacks/stretch.py
+attacks/carousel.py
+security/__init__.py
+security/detector.py
+security/mitigation.py
 ```
-The attack layer will build on the packet and routing system.
+
 ## Part 4 - Simulation, GUI & Analytics
 **Status: Planned**
-Expected functionality:
-```text
-Simulation Engine
-GUI
-Network Visualization
-Metrics
-CSV Output
-Experiments
-```
-The final stage will integrate the complete network, routing, attack,
-security, and analytics layers.
+Planned components for future development:
+- **Simulation Engine**: Event-driven or discrete-time simulation driver (`simulation/simulator.py`)
+- **GUI Application**: Interactive desktop interface for topology creation and real-time visualization (`gui/`)
+- **Network Visualization**: Canvas rendering nodes, communication links, routes, dead nodes, and attack loops
+- **Metrics Collection**: System-wide energy metrics, latency, packet delivery ratio, and route inflation ratio (`metrics/`)
+- **CSV Output**: Automated telemetry exports for experimental benchmarking
+- **Comparative Experiments**: Automated comparison of benign, under-attack, and mitigated network runs
+
+---
+
 # Team Integration
-The intended integration order is:
+
 ```text
-┌─────────────────────────────┐
-│ Part 1: Network & Energy   │
-│ Node + Network + Energy     │
-└──────────────┬──────────────┘
-               │
-               ▼
-┌─────────────────────────────┐
-│ Part 2: Packet & Routing   │
-│ Packet + Dijkstra + Router │
-└──────────────┬──────────────┘
-               │
-               ▼
-┌─────────────────────────────┐
-│ Part 3: Security           │
-│ Attacks + Detection        │
-│ + Mitigation               │
-└──────────────┬──────────────┘
-               │
-               ▼
-┌─────────────────────────────┐
-│ Part 4: Simulation & GUI   │
-│ Simulation + UI + Metrics  │
-└─────────────────────────────┘
+┌─────────────────────────────────────────┐
+│       Part 1: Network & Energy          │
+│       Node + Network + Energy           │
+│              COMPLETED                  │
+└────────────────────┬────────────────────┘
+                     │
+                     ▼
+┌─────────────────────────────────────────┐
+│       Part 2: Packet & Routing          │
+│       Packet + Dijkstra + Router        │
+│              COMPLETED                  │
+└────────────────────┬────────────────────┘
+                     │
+                     ▼
+┌─────────────────────────────────────────┐
+│   Part 3: Vampire Attack & Security     │
+│   Attacks + Detection + Mitigation      │
+│              COMPLETED                  │
+└────────────────────┬────────────────────┘
+                     │
+                     ▼
+┌─────────────────────────────────────────┐
+│       Part 4: Simulation & GUI          │
+│       Simulation + UI + Analytics       │
+│               PLANNED                   │
+└─────────────────────────────────────────┘
 ```
-Each part should build on the previous part instead of duplicating its
-responsibilities.
-# Current Part 1 Contract
-The most important interfaces for future modules are:
-```python
-network.get_node(node_id)
-network.get_neighbors(node_id)
-network.distance(node_a, node_b)
-network.sink
-node.alive
-node.energy
-node.consume_energy(amount)
-energy_model.transmit(
-    sender,
-    receiver,
-    packet_size,
-    distance,
-)
-```
-These interfaces provide the foundation required by the routing, attack,
-simulation, and GUI layers.
+
+---
+
 # Scope Boundary
-## Parts 1 and 2 --- Completed
-Part 1 and Part 2 together implement the network foundation and routing
-layer:
-```text
-Part 1 (Completed):
-  Node, Network, EnergyModel
-Part 2 (Completed):
-  Packet, Dijkstra, RoutingTable, Router
-```
-## Parts 3 and 4 --- Planned
-The following features are not yet implemented and belong to future
-development stages:
-```text
-Part 3 (Planned):
-  Stretch Attack
-  Carousel Attack
-  Attack detection
-  Attack mitigation
-Part 4 (Planned):
-  Simulation engine
-  GUI
-  Network visualization
-  Metrics
-  CSV output
-  Experiments
-```
-Parts 3 and 4 will build on the stable foundation provided by Parts 1
-and 2.
+
+## Parts 1, 2, and 3 — Completed
+The foundation, routing layer, and security suite are fully implemented and verified:
+- **Part 1**: `Node`, `Network`, `EnergyModel`
+- **Part 2**: `Packet`, `shortest_path` (Dijkstra), `RoutingTable`, `Router`
+- **Part 3**: `BaseAttack`, `StretchAttack`, `CarouselAttack`, `AttackDetector`, `MitigationManager`, `IsolatedNetworkView`
+
+## Part 4 — Planned
+The following features belong strictly to future work:
+- Simulation Engine (`simulation/simulator.py`)
+- Graphical User Interface (`gui/`)
+- Network Visualization
+- System Metrics and CSV Exporters (`metrics/`)
+- Comparative Benchmark Experiments
