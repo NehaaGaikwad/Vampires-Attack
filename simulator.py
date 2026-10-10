@@ -1,4 +1,4 @@
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 import csv
 from pathlib import Path
 
@@ -12,6 +12,7 @@ from routing.router import Router
 
 
 Result = dict[str, str | int | float | bool]
+ProgressCallback = Callable[[dict[str, object]], None]
 
 
 class Simulator:
@@ -36,6 +37,7 @@ class Simulator:
         destination: str,
         packet_size: int = 1,
         ttl: int | None = None,
+        on_progress: ProgressCallback | None = None,
     ) -> Packet:
         """Create and route one packet, returning its completed state."""
         packet_kwargs: dict[str, int] = {"packet_size": packet_size}
@@ -45,7 +47,15 @@ class Simulator:
         packet = Packet(source, destination, **packet_kwargs)
         if self.attack is None:
             energy_before = self._total_remaining_energy()
-            result = self.router.route_packet(packet)
+            result = self.router.route_packet(
+                packet,
+                on_progress=lambda event: self._report_progress(
+                    event,
+                    on_progress,
+                    route_kind="normal",
+                    normal_route=event["planned_route"],
+                ),
+            )
             self._record_result(result, energy_before, attack_used=False)
             return result
 
@@ -61,7 +71,13 @@ class Simulator:
             network=self.network,
             ttl=packet.ttl,
         )
-        result = self._execute_route(packet, attacked_route)
+        result = self._execute_route(
+            packet,
+            attacked_route,
+            on_progress=on_progress,
+            normal_route=route,
+            allow_revisits=isinstance(self.attack, CarouselAttack),
+        )
         self._record_result(result, energy_before, attack_used=True)
         return result
 
@@ -83,6 +99,7 @@ class Simulator:
         carousel_attack: CarouselAttack,
         packet_size: int = 1,
         ttl: int | None = None,
+        on_progress: ProgressCallback | None = None,
     ) -> list[Result]:
         """Compare normal routing, Stretch, and Carousel with isolated network copies."""
         scenarios: list[tuple[str, StretchAttack | CarouselAttack | None]] = [
@@ -109,6 +126,13 @@ class Simulator:
                 destination=destination,
                 packet_size=packet_size,
                 ttl=ttl,
+                on_progress=(
+                    lambda event, scenario=scenario: on_progress(
+                        {**event, "scenario": scenario}
+                    )
+                    if on_progress is not None
+                    else None
+                ),
             )
             result = simulator.get_results()[0]
             result["scenario"] = scenario
@@ -160,6 +184,27 @@ class Simulator:
     def _total_remaining_energy(self) -> float:
         return sum(node.energy for node in self.network.nodes.values())
 
+    def _report_progress(
+        self,
+        event: dict[str, object],
+        callback: ProgressCallback | None,
+        *,
+        route_kind: str,
+        normal_route: object,
+    ) -> None:
+        if callback is None:
+            return
+        callback(
+            {
+                **event,
+                "route_kind": route_kind,
+                "normal_route": list(normal_route),
+                "node_energy": {
+                    node.id: node.energy for node in self.network.nodes.values()
+                },
+            }
+        )
+
     def _record_result(
         self,
         packet: Packet,
@@ -182,7 +227,14 @@ class Simulator:
             }
         )
 
-    def _execute_route(self, packet: Packet, route: list[str]) -> Packet:
+    def _execute_route(
+        self,
+        packet: Packet,
+        route: list[str],
+        on_progress: ProgressCallback | None = None,
+        normal_route: list[str] | None = None,
+        allow_revisits: bool = False,
+    ) -> Packet:
         """Forward a packet along a precomputed route."""
         if len(route) == 1 and route[0] == packet.destination:
             packet.mark_delivered()
@@ -196,7 +248,7 @@ class Simulator:
             if packet.ttl <= 0:
                 packet.mark_expired()
                 return packet
-            if receiver_id in packet.visited:
+            if receiver_id in packet.visited and not allow_revisits:
                 packet.mark_dropped()
                 return packet
 
@@ -230,13 +282,32 @@ class Simulator:
                 packet.mark_dropped()
                 return packet
 
-            packet.advance(receiver_id)
+            packet.advance(receiver_id, allow_revisit=allow_revisits)
+            if allow_revisits and packet.in_transit and packet.ttl == 0:
+                packet.mark_expired()
             if sender_id != packet.source:
                 sender_node.forwarded += 1
+
+            self._report_progress(
+                {
+                    "route": packet.route,
+                    "planned_route": list(route),
+                    "sender": sender_id,
+                    "receiver": receiver_id,
+                    "status": packet.status.name,
+                    "hops": packet.hops,
+                },
+                on_progress,
+                route_kind="attacked",
+                normal_route=normal_route or route,
+            )
 
             if not packet.in_transit:
                 return packet
 
         if packet.in_transit:
-            packet.mark_dropped()
+            if allow_revisits and packet.ttl <= 0:
+                packet.mark_expired()
+            else:
+                packet.mark_dropped()
         return packet

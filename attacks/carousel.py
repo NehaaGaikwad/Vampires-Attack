@@ -33,6 +33,7 @@ Intensity Semantics
 
 from __future__ import annotations
 
+from collections import deque
 from typing import TYPE_CHECKING, Optional, Union
 
 from attacks.base import AttackIntensity, AttackType, BaseAttack
@@ -144,16 +145,11 @@ class CarouselAttack(BaseAttack):
         -----
         1. If attack is inactive at *current_time*: return original route.
         2. If *route* is empty or has fewer than 2 nodes: return original route.
-        3. If *attacker_node_id* is not in *route*: return original route.
+        3. If *attacker_node_id* is not in *route*, find a valid path to it.
         4. If *attacker_node_id* is the final destination: return original route.
-        5. Identify a valid partner node adjacent to the attacker (e.g. next hop
-           or an alive neighbor).
-        6. Calculate remaining TTL budget: each loop (attacker -> partner -> attacker)
-           consumes exactly 2 hops.
-        7. If remaining TTL budget < 2: return original route (cannot cycle within TTL).
-        8. Determine repetition count based on *intensity* (LOW, MEDIUM, HIGH).
-        9. Reconstruct route: source is preserved first, destination is preserved final,
-           and the total hop count strictly respects TTL.
+        5. Identify an alive, adjacent, non-destination partner node.
+        6. Insert repeated attacker/partner hops within the remaining TTL.
+        7. Leave TTL for a valid destination suffix when intensity is LOW or MEDIUM.
 
         Parameters
         ----------
@@ -169,7 +165,8 @@ class CarouselAttack(BaseAttack):
         Returns
         -------
         list[str]
-            The looped carousel route, or original route if cycling cannot be safely applied.
+            The route prefix, bounded cycle, and (when budget permits) valid
+            destination suffix.
         """
         # Safety & lifecycle checks
         if not self.is_active(current_time):
@@ -178,56 +175,120 @@ class CarouselAttack(BaseAttack):
         if not route or not isinstance(route, list) or len(route) < 2:
             return list(route) if isinstance(route, list) else []
 
-        if self.attacker_node_id not in route:
-            return list(route)
-
-        attacker_idx = route.index(self.attacker_node_id)
-        if attacker_idx == len(route) - 1:
+        if self.attacker_node_id == route[-1]:
             # Attacker is already the destination; cannot create forward cycle
             return list(route)
 
-        # Identify partner node to cycle with
-        partner_node_id = self._select_partner_node(route, attacker_idx, network)
+        if self.attacker_node_id in route:
+            attacker_idx = route.index(self.attacker_node_id)
+            prefix = route[: attacker_idx + 1]
+            partner_node_id = self._select_partner_node(
+                route,
+                attacker_idx,
+                network,
+            )
+        else:
+            if network is None:
+                return list(route)
+            prefix = self._find_valid_path(
+                network,
+                start=route[0],
+                target=self.attacker_node_id,
+                forbidden={route[-1]},
+            )
+            if not prefix:
+                return list(route)
+            attacker_idx = len(prefix) - 1
+            partner_node_id = (
+                prefix[-2]
+                if len(prefix) > 1
+                else self._select_partner_node(route, 0, network)
+            )
+
         if partner_node_id is None:
-            return list(route)
+            return prefix
 
-        # Base hops required for the original route
-        base_hops = len(route) - 1
-        effective_ttl = ttl if (ttl is not None and ttl > 0) else 64
+        effective_ttl = 64 if ttl is None else max(0, ttl)
+        hop_budget = effective_ttl - attacker_idx
+        if hop_budget < 2:
+            return prefix
+        if network is None:
+            reps = self._determine_repetitions(hop_budget // 2)
+            return prefix + [
+                node_id
+                for _ in range(reps)
+                for node_id in (partner_node_id, self.attacker_node_id)
+            ]
 
-        if effective_ttl <= base_hops:
-            # No TTL budget left to insert extra loop hops
-            return list(route)
+        suffix = (
+            self._find_valid_path(
+                network,
+                start=self.attacker_node_id,
+                target=route[-1],
+            )
+        )
+        suffix_hops = len(suffix) - 1 if suffix else 0
 
-        hop_budget = effective_ttl - base_hops
-        # Each cycle of (partner -> attacker) adds 2 hops
-        max_possible_reps = hop_budget // 2
-        if max_possible_reps < 1:
-            return list(route)
+        if self.intensity == AttackIntensity.HIGH or not suffix:
+            loop_hops = hop_budget
+            suffix = []
+        else:
+            loop_hops = hop_budget - suffix_hops
+            if loop_hops < 2:
+                loop_hops = hop_budget
+                suffix = []
+            else:
+                max_possible_reps = loop_hops // 2
+                reps = self._determine_repetitions(max_possible_reps)
+                loop_hops = reps * 2
 
-        # Determine repetitions based on intensity
-        reps = self._determine_repetitions(max_possible_reps)
-        if reps < 1:
-            return list(route)
+        cycle_sequence = [
+            partner_node_id
+            if hop_index % 2 == 0
+            else self.attacker_node_id
+            for hop_index in range(loop_hops)
+        ]
+        if suffix:
+            return prefix + cycle_sequence + suffix[1:]
+        return prefix + cycle_sequence
 
-        # Construct the carousel route:
-        # prefix: route[:attacker_idx + 1] (ends with attacker)
-        # cycle hops: [partner, attacker] * reps
-        # suffix: route[attacker_idx + 1:] (begins with next hop)
-        prefix = route[: attacker_idx + 1]
-        suffix = route[attacker_idx + 1 :]
+    @staticmethod
+    def _find_valid_path(
+        network: "Network",
+        start: str,
+        target: str,
+        forbidden: set[str] | None = None,
+    ) -> list[str]:
+        """Find a shortest live-edge path without visiting forbidden nodes."""
+        start_node = network.get_node(start)
+        target_node = network.get_node(target)
+        if (
+            start_node is None
+            or not start_node.alive
+            or target_node is None
+            or not target_node.alive
+        ):
+            return []
 
-        cycle_sequence: list[str] = []
-        for _ in range(reps):
-            cycle_sequence.extend([partner_node_id, self.attacker_node_id])
+        forbidden_nodes = forbidden or set()
+        queue = deque([[start]])
+        visited = {start}
+        while queue:
+            path = queue.popleft()
+            current = path[-1]
+            if current == target:
+                return path
 
-        looped_route = prefix + cycle_sequence + suffix
-
-        # Final safety check: ensure total hops does not exceed TTL
-        if len(looped_route) - 1 > effective_ttl:
-            return list(route)
-
-        return looped_route
+            for neighbor in sorted(network.get_neighbors(current), key=lambda node: node.id):
+                if (
+                    not neighbor.alive
+                    or (neighbor.id in forbidden_nodes and neighbor.id != target)
+                    or neighbor.id in visited
+                ):
+                    continue
+                visited.add(neighbor.id)
+                queue.append(path + [neighbor.id])
+        return []
 
     # ------------------------------------------------------------------
     # Helper Logic
@@ -255,11 +316,18 @@ class CarouselAttack(BaseAttack):
         network: Optional["Network"],
     ) -> Optional[str]:
         """Select a valid adjacent neighbor to cycle with the attacker."""
-        # Candidate 1: The immediate next hop in the route
+        destination_id = route[-1]
+
+        # Prefer the route's next hop unless it is the destination. A
+        # carousel partner must never be the sink.
         candidate_next = route[attacker_idx + 1]
 
         if network is None:
-            return candidate_next
+            if candidate_next != destination_id:
+                return candidate_next
+            if attacker_idx > 0 and route[attacker_idx - 1] != destination_id:
+                return route[attacker_idx - 1]
+            return None
 
         # If network is provided, verify attacker and candidate exist and are alive
         attacker_node = network.get_node(self.attacker_node_id)
@@ -274,19 +342,19 @@ class CarouselAttack(BaseAttack):
 
         alive_neighbor_ids = {n.id for n in alive_neighbors}
 
-        if candidate_next in alive_neighbor_ids:
+        if candidate_next != destination_id and candidate_next in alive_neighbor_ids:
             return candidate_next
 
         # Candidate 2: The previous hop in the route
         if attacker_idx > 0:
             candidate_prev = route[attacker_idx - 1]
-            if candidate_prev in alive_neighbor_ids:
+            if candidate_prev != destination_id and candidate_prev in alive_neighbor_ids:
                 return candidate_prev
 
         # Candidate 3: Any alive neighbor
-        if alive_neighbor_ids:
-            # Deterministic selection: sorted first
-            return sorted(alive_neighbor_ids)[0]
+        candidates = alive_neighbor_ids - {destination_id}
+        if candidates:
+            return sorted(candidates)[0]
 
         return None
 

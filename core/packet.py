@@ -233,7 +233,7 @@ class Packet:
     # State advancement — called by the Router
     # ------------------------------------------------------------------
 
-    def advance(self, next_node_id: str) -> None:
+    def advance(self, next_node_id: str, allow_revisit: bool = False) -> None:
         """Advance the packet one hop to *next_node_id*.
 
         This method is intended to be called by the routing layer *after*
@@ -246,9 +246,8 @@ class Packet:
            is raised.
         2. *next_node_id* must be non-empty; otherwise ``ValueError`` is
            raised.
-        3. If *next_node_id* is already in ``visited``, the packet is
-           marked as ``DROPPED`` (loop detected) — no further state
-           change occurs.
+        3. If *next_node_id* is already in ``visited`` and revisits are
+           not allowed, the packet is marked as ``DROPPED``.
         4. If the remaining TTL is 0, the packet is marked as
            ``EXPIRED`` — no hop is taken.
         5. TTL is decremented by 1.
@@ -262,6 +261,8 @@ class Packet:
         ----------
         next_node_id : str
             The node ID of the next hop.
+        allow_revisit : bool, default False
+            Permit a routing layer to record an intentional, validated loop.
 
         Raises
         ------
@@ -279,7 +280,7 @@ class Packet:
             raise ValueError("next_node_id must be a non-empty string.")
 
         # Rule 3: Loop detection — reject revisiting an already-visited node.
-        if next_node_id in self._visited:
+        if next_node_id in self._visited and not allow_revisit:
             self._status = PacketStatus.DROPPED
             return
 

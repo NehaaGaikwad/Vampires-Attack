@@ -11,6 +11,9 @@ from attacks.stretch import StretchAttack
 from core.network import Network
 from core.node import Node
 from core.packet import Packet
+from energy.energy_model import EnergyModel
+from routing.router import Router
+from simulator import Simulator
 
 
 @pytest.fixture
@@ -38,6 +41,26 @@ def sample_network():
     ]
     for n in nodes:
         net.add_node(n)
+    net.set_sink("SINK")
+    net.update_neighbors()
+    return net
+
+
+@pytest.fixture
+def sample_simulator_network():
+    """The topology used by the simulator UI, with its N5 detour."""
+    net = Network(communication_range=35.0)
+    nodes = [
+        Node("N1", 0.0, 0.0, 100.0),
+        Node("N2", 25.0, 0.0, 100.0),
+        Node("N3", 50.0, 0.0, 100.0),
+        Node("N4", 75.0, 0.0, 100.0),
+        Node("N5", 48.0, 24.0, 100.0),
+        Node("N6", 72.0, 22.0, 100.0),
+        Node("SINK", 100.0, 0.0, 500.0),
+    ]
+    for node in nodes:
+        net.add_node(node)
     net.set_sink("SINK")
     net.update_neighbors()
     return net
@@ -106,6 +129,51 @@ class TestStretchAttackLifecycle:
 class TestStretchRouteManipulation:
     """Tests for route stretching logic and node validity."""
 
+    def test_attacker_not_on_shortest_route_is_included(self, sample_simulator_network):
+        normal_route = ["N1", "N2", "N3", "N4", "SINK"]
+        attack = StretchAttack("N5")
+
+        stretched = attack.apply(
+            normal_route,
+            network=sample_simulator_network,
+            ttl=50,
+        )
+
+        assert stretched == ["N1", "N2", "N5", "N3", "N6", "N4", "SINK"]
+        assert len(stretched) == len(set(stretched))
+        for sender, receiver in zip(stretched, stretched[1:]):
+            neighbor_ids = {
+                neighbor.id for neighbor in sample_simulator_network.get_neighbors(sender)
+            }
+            assert receiver in neighbor_ids
+
+    def test_simulator_forwards_and_reports_stretched_route(
+        self,
+        sample_simulator_network,
+    ):
+        energy_model = EnergyModel()
+        router = Router(sample_simulator_network, energy_model)
+        simulator = Simulator(
+            sample_simulator_network,
+            router,
+            energy_model,
+            StretchAttack("N5"),
+        )
+        progress: list[dict[str, object]] = []
+
+        packet = simulator.run_packet(
+            "N1",
+            "SINK",
+            ttl=50,
+            on_progress=progress.append,
+        )
+
+        expected_route = ["N1", "N2", "N5", "N3", "N6", "N4", "SINK"]
+        assert packet.status.name == "DELIVERED"
+        assert packet.route == expected_route
+        assert progress[-1]["planned_route"] == expected_route
+        assert progress[-1]["route"] == expected_route
+
     def test_route_length_increases(self, sample_network):
         attack = StretchAttack("N2", intensity=AttackIntensity.HIGH, start_time=0, duration=50)
         normal_route = ["N1", "N2", "SINK"]
@@ -173,10 +241,13 @@ class TestStretchRouteManipulation:
 class TestStretchEdgeCases:
     """Tests for edge cases, missing data, and invalid inputs."""
 
-    def test_route_without_attacker_unchanged(self, sample_network):
+    def test_route_without_attacker_unchanged_when_ttl_prevents_detour(
+        self,
+        sample_network,
+    ):
         attack = StretchAttack("N5")
-        route = ["N1", "N2", "SINK"]  # N5 is not in route
-        assert attack.apply(route, network=sample_network) == route
+        route = ["N1", "N2", "SINK"]
+        assert attack.apply(route, network=sample_network, ttl=2) == route
 
     def test_missing_network_returns_original(self):
         attack = StretchAttack("N2")

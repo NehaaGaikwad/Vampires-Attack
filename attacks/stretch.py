@@ -183,7 +183,7 @@ class StretchAttack(BaseAttack):
             return list(route) if isinstance(route, list) else []
 
         if self.attacker_node_id not in route:
-            return list(route)
+            return self._manipulate_route_through_attacker(route, network, ttl)
 
         attacker_idx = route.index(self.attacker_node_id)
         if attacker_idx == len(route) - 1:
@@ -248,6 +248,98 @@ class StretchAttack(BaseAttack):
         # Reconstruct route: prefix[:-1] + selected_path (prefix ends with attacker, selected starts with attacker)
         stretched_route = prefix[:-1] + selected_path
         return stretched_route
+
+    def _manipulate_route_through_attacker(
+        self,
+        route: list[str],
+        network: Optional["Network"],
+        ttl: Optional[int],
+    ) -> list[str]:
+        """Find a longer simple source-to-destination path through this attacker."""
+        if network is None:
+            return list(route)
+
+        source = route[0]
+        destination = route[-1]
+        source_node = network.get_node(source)
+        attacker_node = network.get_node(self.attacker_node_id)
+        destination_node = network.get_node(destination)
+        if (
+            source_node is None
+            or not source_node.alive
+            or attacker_node is None
+            or not attacker_node.alive
+            or attacker_node is network.sink
+            or destination_node is None
+            or not destination_node.alive
+        ):
+            return list(route)
+
+        max_hops = ttl if ttl is not None and ttl > 0 else 64
+        max_depth = min(max_hops, 25)
+        prefixes = self._find_simple_paths(
+            network=network,
+            start=source,
+            target=self.attacker_node_id,
+            forbidden=set(),
+            max_depth=max_depth,
+        )
+        candidates: list[list[str]] = []
+        for prefix in prefixes:
+            remaining_hops = max_hops - (len(prefix) - 1)
+            if remaining_hops < 1:
+                continue
+
+            suffixes = self._find_simple_paths(
+                network=network,
+                start=self.attacker_node_id,
+                target=destination,
+                forbidden=set(prefix[:-1]),
+                max_depth=min(remaining_hops, 25),
+            )
+            for suffix in suffixes:
+                candidate = prefix[:-1] + suffix
+                if (
+                    len(candidate) > len(route)
+                    and len(candidate) - 1 <= max_hops
+                ):
+                    candidates.append(candidate)
+
+        if not candidates:
+            return list(route)
+
+        original_edges = set(zip(route, route[1:]))
+
+        def steps_to_next_original_node(path: list[str]) -> int:
+            attacker_index = path.index(self.attacker_node_id)
+            preceding_route_indices = [
+                route.index(node_id)
+                for node_id in path[:attacker_index]
+                if node_id in route
+            ]
+            next_route_index = max(preceding_route_indices, default=-1) + 1
+            if next_route_index >= len(route):
+                return len(path)
+
+            next_route_node = route[next_route_index]
+            for offset, node_id in enumerate(path[attacker_index + 1 :]):
+                if node_id == next_route_node:
+                    return offset
+            return len(path)
+
+        candidates.sort(
+            key=lambda path: (
+                len(path),
+                path.index(self.attacker_node_id),
+                steps_to_next_original_node(path),
+                -sum(
+                    (sender, receiver) in original_edges
+                    for sender, receiver in zip(path, path[1:])
+                ),
+                path,
+            )
+        )
+        return self._select_by_intensity(candidates)
 
     # ------------------------------------------------------------------
     # Path Search & Helper Logic

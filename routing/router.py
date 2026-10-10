@@ -48,7 +48,7 @@ by stopping forwarding and marking the packet as DROPPED.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Callable, Optional
 
 from routing.dijkstra import shortest_path
 from routing.routing_table import RoutingTable
@@ -223,6 +223,7 @@ class Router:
         self,
         packet: "Packet",
         packet_size: Optional[int] = None,
+        on_progress: Callable[[dict[str, object]], None] | None = None,
     ) -> "Packet":
         """Forward *packet* hop-by-hop from its current node to its destination.
 
@@ -352,6 +353,18 @@ class Router:
             # a packet and then forward it onward; the source only sends.
             if sender_id != packet.source:
                 sender_node.forwarded += 1
+
+            if on_progress is not None:
+                on_progress(
+                    {
+                        "route": packet.route,
+                        "planned_route": list(route),
+                        "sender": sender_id,
+                        "receiver": receiver_id,
+                        "status": packet.status.name,
+                        "hops": packet.hops,
+                    }
+                )
 
             # Stop if the packet is no longer in transit.
             if not packet.in_transit:
