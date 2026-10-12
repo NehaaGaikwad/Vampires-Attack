@@ -62,7 +62,7 @@ class Simulator:
         energy_before = self._total_remaining_energy()
         route = self.router.find_route(source, destination)
         if route is None:
-            packet.mark_dropped()
+            packet.mark_failed()
             self._record_result(packet, energy_before, attack_used=False)
             return packet
 
@@ -162,6 +162,14 @@ class Simulator:
         """Return a copy of the metrics recorded for completed packet runs."""
         return [result.copy() for result in self._results]
 
+    def reset(self) -> None:
+        """Restore node state and clear completed simulation results."""
+        for node in self.network.nodes.values():
+            node.reset()
+        self.network.update_neighbors()
+        self.router.routing_table.clear()
+        self._results.clear()
+
     def _copy_network(self) -> Network:
         """Copy current network topology and node state for one experiment scenario."""
         network = Network(self.network.communication_range)
@@ -202,6 +210,9 @@ class Simulator:
                 "node_energy": {
                     node.id: node.energy for node in self.network.nodes.values()
                 },
+                "node_alive": {
+                    node.id: node.alive for node in self.network.nodes.values()
+                },
             }
         )
 
@@ -236,39 +247,50 @@ class Simulator:
         allow_revisits: bool = False,
     ) -> Packet:
         """Forward a packet along a precomputed route."""
-        if len(route) == 1 and route[0] == packet.destination:
-            packet.mark_delivered()
-            return packet
-
-        for sender_id, receiver_id in zip(route, route[1:]):
-            if not packet.in_transit or packet.current_node != sender_id:
-                packet.mark_dropped()
+        route_index = 0
+        while packet.in_transit:
+            sender_id = packet.current_node
+            sender_node = self.network.get_node(sender_id)
+            if sender_node is None or not sender_node.alive:
+                packet.mark_failed()
                 return packet
-
+            if sender_id == packet.destination:
+                packet.mark_delivered()
+                return packet
             if packet.ttl <= 0:
                 packet.mark_expired()
                 return packet
-            if receiver_id in packet.visited and not allow_revisits:
-                packet.mark_dropped()
-                return packet
 
-            sender_node = self.network.get_node(sender_id)
+            if route_index >= len(route) - 1 or route[route_index] != sender_id:
+                replacement = self.router.find_route(
+                    sender_id,
+                    packet.destination,
+                    excluded_nodes=(
+                        packet.visited - {sender_id}
+                        if not allow_revisits
+                        else None
+                    ),
+                )
+                if replacement is None:
+                    packet.mark_failed()
+                    return packet
+                route = packet.route + replacement[1:]
+                route_index = len(packet.route) - 1
+                continue
+
+            receiver_id = route[route_index + 1]
             receiver_node = self.network.get_node(receiver_id)
-            if (
-                sender_node is None
-                or not sender_node.alive
-                or receiver_node is None
-                or not receiver_node.alive
-            ):
-                packet.mark_dropped()
-                return packet
-
             alive_neighbor_ids = {
                 neighbor.id for neighbor in self.network.get_neighbors(sender_id)
             }
-            if receiver_id not in alive_neighbor_ids:
-                packet.mark_dropped()
-                return packet
+            if (
+                receiver_node is None
+                or not receiver_node.alive
+                or receiver_id not in alive_neighbor_ids
+                or (receiver_id in packet.visited and not allow_revisits)
+            ):
+                route_index = len(route)
+                continue
 
             distance = self.network.distance(sender_id, receiver_id)
             try:
@@ -279,8 +301,8 @@ class Simulator:
                     distance=distance,
                 )
             except NodeDeadError:
-                packet.mark_dropped()
-                return packet
+                route_index = len(route)
+                continue
 
             packet.advance(receiver_id, allow_revisit=allow_revisits)
             if allow_revisits and packet.in_transit and packet.ttl == 0:
@@ -301,13 +323,5 @@ class Simulator:
                 route_kind="attacked",
                 normal_route=normal_route or route,
             )
-
-            if not packet.in_transit:
-                return packet
-
-        if packet.in_transit:
-            if allow_revisits and packet.ttl <= 0:
-                packet.mark_expired()
-            else:
-                packet.mark_dropped()
+            route_index += 1
         return packet

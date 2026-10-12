@@ -58,6 +58,7 @@ class PacketStatus(Enum):
     DELIVERED = auto()    #: Packet has reached its destination.
     EXPIRED = auto()      #: TTL was exhausted before delivery.
     DROPPED = auto()      #: Dropped due to loop detection or unreachable destination.
+    FAILED = auto()       #: Delivery failed because no valid live route exists.
 
 
 # ---------------------------------------------------------------------------
@@ -221,7 +222,12 @@ class Packet:
     def dropped(self) -> bool:
         """``True`` if the packet was dropped for any non-delivery reason
         (e.g. loop detected, unreachable destination)."""
-        return self._status == PacketStatus.DROPPED
+        return self._status in {PacketStatus.DROPPED, PacketStatus.FAILED}
+
+    @property
+    def failed(self) -> bool:
+        """``True`` when delivery failed because no valid route was available."""
+        return self._status == PacketStatus.FAILED
 
     @property
     def in_transit(self) -> bool:
@@ -314,6 +320,11 @@ class Packet:
         """
         if self._status == PacketStatus.IN_TRANSIT:
             self._status = PacketStatus.EXPIRED
+
+    def mark_failed(self) -> None:
+        """Mark an in-flight packet failed because delivery is impossible."""
+        if self._status == PacketStatus.IN_TRANSIT:
+            self._status = PacketStatus.FAILED
 
     def mark_delivered(self) -> None:
         """Explicitly mark the packet as delivered.

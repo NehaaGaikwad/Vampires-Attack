@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from threading import Event
+from time import perf_counter
 
-from PyQt5.QtCore import QObject, QThread, QTimer, Qt, pyqtSignal
+from PyQt5.QtCore import QObject, QPoint, QSize, QThread, QTimer, Qt, pyqtSignal
 from PyQt5.QtWidgets import (
+    QButtonGroup,
     QComboBox,
     QDialog,
     QFileDialog,
@@ -17,15 +19,16 @@ from PyQt5.QtWidgets import (
     QLabel,
     QMainWindow,
     QPushButton,
-    QSpinBox,
+    QProgressBar,
+    QScrollArea,
     QSplitter,
+    QTabWidget,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QColor
+from PyQt5.QtGui import QColor, QIcon, QPainter, QPixmap, QPolygon
 
 from attacks.carousel import CarouselAttack
 from attacks.stretch import StretchAttack
@@ -34,6 +37,7 @@ from visualization.live_network_view import LiveNetworkView
 
 
 ResultValue = str | int | float | bool
+ENERGY_PERCENT_SCALE = 10_000
 
 
 class PacketDeliveredDialog(QDialog):
@@ -123,53 +127,54 @@ class PacketDeliveredDialog(QDialog):
                 font-family: "Segoe UI";
             }
             QFrame#successCard {
-                background: #FFFFFF;
-                border: 1px solid #F8F6F0;
-                border-radius: 16px;
+                background: #FFF7E9;
+                border: 2px solid #34251E;
+                border-radius: 0;
             }
             QLabel#successIcon {
-                background: #16A34A;
-                color: #FFFFFF;
-                border-radius: 26px;
+                background: #4B8845;
+                color: #FFF7E9;
+                border: 2px solid #34251E;
+                border-radius: 0;
                 font-size: 24pt;
-                font-weight: 600;
+                font-weight: 900;
             }
             QLabel#successTitle {
-                color: #292524;
+                color: #34251E;
+                font-family: "Courier New";
                 font-size: 13pt;
-                font-weight: 600;
+                font-weight: 900;
             }
             QLabel#successMessage {
-                color: #292524;
+                color: #34251E;
                 font-size: 9pt;
                 padding-bottom: 2px;
             }
             QLabel#detailLabel {
-                color: #292524;
+                color: #795D4A;
                 font-size: 9pt;
             }
             QLabel#detailValue {
-                color: #292524;
+                color: #34251E;
                 font-size: 9pt;
-                font-weight: 600;
+                font-weight: 900;
             }
             QPushButton#continueButton {
-                background: #16A34A;
-                color: #FFFFFF;
-                border: none;
-                border-radius: 6px;
+                background: #4B8845;
+                color: #FFF7E9;
+                border: 2px solid #34251E;
+                border-radius: 0;
                 min-height: 30px;
                 padding: 3px 14px;
                 font-size: 9pt;
-                font-weight: 600;
+                font-weight: 900;
             }
             QPushButton#continueButton:hover {
-                background: #F8F6F0;
-                color: #16A34A;
-                border: 1px solid #16A34A;
+                background: #5D9B55;
+                color: #FFF7E9;
             }
             QPushButton#continueButton:pressed {
-                background: #292524;
+                background: #795D4A;
             }
             """
         )
@@ -243,53 +248,59 @@ class StatusMessageDialog(QDialog):
                 font-family: "Segoe UI";
             }
             QFrame#messageCard {
-                background: #FFFFFF;
-                border: 1px solid #F8F6F0;
-                border-radius: 12px;
+                background: #FFF7E9;
+                border: 2px solid #34251E;
+                border-radius: 0;
             }
             QLabel#messageIcon {
-                background: #EA580C;
-                color: #FFFFFF;
-                border-radius: 14px;
+                background: #D95735;
+                color: #FFF7E9;
+                border: 2px solid #34251E;
+                border-radius: 0;
                 font-size: 14pt;
-                font-weight: 700;
+                font-weight: 900;
             }
             QLabel#messageTitle {
-                color: #292524;
+                color: #34251E;
+                font-family: "Courier New";
                 font-size: 10pt;
-                font-weight: 600;
+                font-weight: 900;
             }
             QLabel#messageBody {
-                color: #292524;
+                color: #34251E;
                 font-size: 9pt;
             }
             QPushButton#messageButton {
-                background: #16A34A;
-                color: #FFFFFF;
-                border: 1px solid #16A34A;
-                border-radius: 5px;
+                background: #4B8845;
+                color: #FFF7E9;
+                border: 2px solid #34251E;
+                border-radius: 0;
                 min-height: 28px;
                 padding: 2px 12px;
                 font-size: 9pt;
-                font-weight: 600;
+                font-weight: 900;
             }
             QPushButton#messageButton:hover {
-                background: #F8F6F0;
-                color: #16A34A;
+                background: #5D9B55;
+                color: #FFF7E9;
             }
             QPushButton#messageButton:pressed {
-                background: #292524;
-                color: #FFFFFF;
-                border-color: #292524;
+                background: #795D4A;
+                color: #FFF7E9;
+                border-color: #34251E;
+            }
+            QFrame#controlsPanel, QFrame#detailsPanel {
+                border-top-color: #C4936B;
+                border-left-color: #C4936B;
             }
             """
         )
 
 
 class SimulationWorker(QObject):
-    progress = pyqtSignal(object, object)
-    completed = pyqtSignal(str, object)
-    failed = pyqtSignal(str)
+    progress = pyqtSignal(int, object, object)
+    completed = pyqtSignal(int, str, object)
+    failed = pyqtSignal(int, str)
     finished = pyqtSignal()
 
     def __init__(
@@ -297,12 +308,14 @@ class SimulationWorker(QObject):
         simulator: Simulator,
         operation: str,
         options: dict[str, str | int],
+        generation: int,
         attack: StretchAttack | CarouselAttack | None = None,
     ) -> None:
         super().__init__()
         self.simulator = simulator
         self.operation = operation
         self.options = options
+        self.generation = generation
         self.attack = attack
         self.stop_event = Event()
 
@@ -329,95 +342,147 @@ class SimulationWorker(QObject):
                     carousel_attack=CarouselAttack(attacker_id),
                     on_progress=self._report_progress,
                 )
-            self.completed.emit(self.operation, result)
+            if not self.stop_event.is_set():
+                self.completed.emit(self.generation, self.operation, result)
+        except SimulationCancelled:
+            pass
         except Exception as error:
-            self.failed.emit(str(error))
+            if not self.stop_event.is_set():
+                self.failed.emit(self.generation, str(error))
         finally:
             self.simulator.attack = original_attack
             self.finished.emit()
 
     def _report_progress(self, event: dict[str, object]) -> None:
         if self.stop_event.is_set():
-            return
+            raise SimulationCancelled
         gate = Event()
-        self.progress.emit(event, gate)
+        self.progress.emit(self.generation, event, gate)
         while not gate.wait(0.1):
             if self.stop_event.is_set():
-                return
+                raise SimulationCancelled
+        if self.stop_event.is_set():
+            raise SimulationCancelled
+
+
+class SimulationCancelled(Exception):
+    """Stop a worker before it can record a partial packet as a result."""
 
 
 class SimulatorMainWindow(QMainWindow):
-    """Simple dashboard for running packets and comparing attack scenarios."""
+    """Retro strategy-game interface for the vampire attack simulator."""
+
+    worker_thread_finished = pyqtSignal(int)
 
     def __init__(self, simulator: Simulator) -> None:
         super().__init__()
         self.simulator = simulator
         self._original_attack = simulator.attack
         self._scenario_labels: dict[int, str] = {}
+        self._scenario = "Normal"
+        self._run_generation = 0
         self._result_start_index = 0
         self._run_energy_start = 0.0
+        self._displayed_energy: dict[str, object] | None = None
+        self._reported_dead_nodes: set[str] = set()
+        self._run_alive_start: dict[str, bool] = {}
+        self._progress_scenario: str | None = None
         self._delivery_popup_shown = False
+        self._active_packet = False
         self._thread: QThread | None = None
         self._worker: SimulationWorker | None = None
         self._current_gate: Event | None = None
         self._packet_progress = 0.0
+        self._pending_hop_event: dict[str, object] | None = None
         self._paused = False
         self._animation_timer = QTimer(self)
         self._animation_timer.setInterval(16)
         self._animation_timer.timeout.connect(self._advance_animation)
+        self.worker_thread_finished.connect(self._worker_finished)
 
+        self._run_started_at = 0.0
         self.setWindowTitle("Vampire Attack Simulator")
-        self.resize(1180, 860)
-        self.setMinimumSize(920, 700)
+        self.resize(1360, 900)
+        self.setMinimumSize(980, 700)
 
         central_widget = QWidget(self)
         central_widget.setObjectName("application")
         self.setCentralWidget(central_widget)
         root_layout = QVBoxLayout(central_widget)
-        root_layout.setContentsMargins(18, 16, 18, 16)
-        root_layout.setSpacing(12)
+        root_layout.setContentsMargins(14, 12, 14, 12)
+        root_layout.setSpacing(10)
 
         header = QHBoxLayout()
         title_block = QVBoxLayout()
-        title_block.setSpacing(2)
-        title = QLabel("Vampire Attack Simulator")
+        title_block.setSpacing(1)
+        title = QLabel("VAMPIRE ATTACK SIMULATOR")
         title.setObjectName("title")
-        subtitle = QLabel("Wireless Sensor Network Simulation")
+        subtitle = QLabel("WIRELESS SENSOR NETWORK // STRATEGY SIMULATOR")
         subtitle.setObjectName("subtitle")
+        shield = QLabel()
+        shield.setObjectName("gameShield")
+        shield.setPixmap(self._pixel_icon_pixmap("shield", 36))
+        header.addWidget(shield, 0, Qt.AlignVCenter)
         title_block.addWidget(title)
         title_block.addWidget(subtitle)
         header.addLayout(title_block)
         header.addStretch(1)
-        self.status_label = QLabel("Ready")
+        self.status_label = QLabel("READY")
         self.status_label.setObjectName("statusIndicator")
         header.addWidget(self.status_label, 0, Qt.AlignRight | Qt.AlignVCenter)
         root_layout.addLayout(header)
 
+        hud = QHBoxLayout()
+        hud.setSpacing(8)
+        self.hud_packets = self._add_hud_stat(hud, "PACKETS", "0")
+        self.hud_ttl = self._add_hud_stat(hud, "TTL LEFT", "50")
+        energy_card = QFrame()
+        energy_card.setObjectName("hudCard")
+        energy_layout = QVBoxLayout(energy_card)
+        energy_layout.setContentsMargins(10, 6, 10, 6)
+        energy_layout.setSpacing(3)
+        energy_layout.addWidget(self._hud_caption("NETWORK ENERGY"))
+        self.hud_energy = QLabel("—")
+        self.hud_energy.setObjectName("hudValue")
+        energy_layout.addWidget(self.hud_energy)
+        self.hud_energy_bar = QProgressBar()
+        self.hud_energy_bar.setObjectName("energyBar")
+        self.hud_energy_bar.setRange(0, 100 * ENERGY_PERCENT_SCALE)
+        self.hud_energy_bar.setTextVisible(False)
+        self.hud_energy_bar.setFixedHeight(9)
+        energy_layout.addWidget(self.hud_energy_bar)
+        hud.addWidget(energy_card, 2)
+        self.hud_state = self._add_hud_stat(hud, "SIMULATION", "READY")
+        self.hud_mode = self._add_hud_stat(hud, "MODE", "NORMAL")
+        hud.setStretch(0, 1)
+        hud.setStretch(1, 1)
+        hud.setStretch(2, 2)
+        hud.setStretch(3, 1)
+        root_layout.addLayout(hud)
+
         content = QSplitter(Qt.Horizontal)
         content.setChildrenCollapsible(False)
-        content.setHandleWidth(8)
+        content.setHandleWidth(6)
 
-        controls_panel = QFrame()
+        controls_panel = QScrollArea()
         controls_panel.setObjectName("controlsPanel")
-        self._add_panel_shadow(controls_panel)
-        controls_panel.setMinimumWidth(270)
-        controls_panel.setMaximumWidth(350)
-        controls_layout = QVBoxLayout(controls_panel)
-        controls_layout.setContentsMargins(16, 16, 16, 16)
-        controls_layout.setSpacing(12)
+        controls_panel.setWidgetResizable(True)
+        controls_panel.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        controls_panel.setMinimumWidth(215)
+        controls_panel.setMaximumWidth(290)
+        controls_content = QWidget()
+        controls_content.setObjectName("controlsContent")
+        controls_layout = QVBoxLayout(controls_content)
+        controls_layout.setContentsMargins(8, 12, 8, 12)
+        controls_layout.setSpacing(9)
 
-        controls_heading = QLabel("Simulation controls")
+        controls_heading = QLabel("MISSION SETUP")
         controls_heading.setObjectName("sectionHeading")
         controls_layout.addWidget(controls_heading)
-
         form = QFormLayout()
         form.setContentsMargins(0, 0, 0, 0)
-        form.setHorizontalSpacing(10)
-        form.setVerticalSpacing(10)
-        self.scenario_input = QComboBox()
-        self.scenario_input.addItems(["Normal", "Stretch", "Carousel"])
-        self.scenario_input.setMinimumWidth(110)
-        self.scenario_input.setMaximumWidth(200)
+        form.setHorizontalSpacing(8)
+        form.setVerticalSpacing(7)
         node_ids = list(self.simulator.network.nodes)
         sink = self.simulator.network.sink
         sink_id = sink.id if sink is not None else None
@@ -425,63 +490,95 @@ class SimulatorMainWindow(QMainWindow):
 
         self.source_input = QComboBox()
         self.source_input.addItems(node_ids)
-        self.source_input.setCurrentText(
-            self._preferred_node_id("N1", node_ids)
-        )
+        self._default_source_id = self._preferred_node_id("N1", node_ids)
+        self.source_input.setCurrentText(self._default_source_id)
         self.destination_input = QComboBox()
         self.destination_input.addItems(node_ids)
-        self.destination_input.setCurrentText(
-            self._preferred_node_id(sink_id or "SINK", node_ids)
+        self._default_destination_id = self._preferred_node_id(
+            sink_id or "SINK", node_ids
         )
+        self.destination_input.setCurrentText(self._default_destination_id)
         self.attacker_input = QComboBox()
         self.attacker_input.setObjectName("attackerInput")
         self.attacker_input.addItems(sensor_ids)
         attacker_default = "N2"
         if attacker_default not in sensor_ids and self.simulator.attack is not None:
             attacker_default = self.simulator.attack.attacker_node_id
-        self.attacker_input.setCurrentText(
-            self._preferred_node_id(attacker_default, sensor_ids)
+        self._default_attacker_id = self._preferred_node_id(
+            attacker_default, sensor_ids
         )
+        self.attacker_input.setCurrentText(self._default_attacker_id)
         for node_input in (
             self.source_input,
             self.destination_input,
             self.attacker_input,
         ):
-            node_input.setMinimumWidth(110)
-            node_input.setMaximumWidth(200)
-        self.packet_size_input = QSpinBox()
-        self.packet_size_input.setRange(0, 2_147_483_647)
-        self.packet_size_input.setValue(4000)
-        self.packet_size_input.setMinimumWidth(110)
-        self.packet_size_input.setMaximumWidth(150)
-        self.ttl_input = QSpinBox()
-        self.ttl_input.setRange(1, 2_147_483_647)
-        self.ttl_input.setValue(50)
-        self.ttl_input.setMinimumWidth(110)
-        self.ttl_input.setMaximumWidth(150)
+            node_input.setMinimumWidth(65)
+        self.packet_size_input = QComboBox()
+        for packet_size in range(1000, 10_001, 500):
+            self.packet_size_input.addItem(str(packet_size), packet_size)
+        self.packet_size_input.setCurrentText("4000")
+        self.ttl_input = QComboBox()
+        for ttl in range(10, 101, 10):
+            self.ttl_input.addItem(str(ttl), ttl)
+        self.ttl_input.setCurrentText("50")
         self.attacker_input.currentTextChanged.connect(self._refresh_attacker)
-        self.scenario_input.currentTextChanged.connect(self._update_attacker_enabled)
+        self.ttl_input.currentTextChanged.connect(self._update_ttl_controls)
 
-        form.addRow("Scenario", self.scenario_input)
-        form.addRow("Source", self.source_input)
-        form.addRow("Destination", self.destination_input)
-        form.addRow("Attacker node", self.attacker_input)
-        form.addRow("Packet size (bits)", self.packet_size_input)
-        form.addRow("TTL", self.ttl_input)
+        form.addRow("SOURCE", self.source_input)
+        form.addRow("DESTINATION", self.destination_input)
+        form.addRow("ATTACKER", self.attacker_input)
+        form.addRow("PACKET BITS", self.packet_size_input)
+        form.addRow("START TTL", self.ttl_input)
         controls_layout.addLayout(form)
 
-        self.run_button = QPushButton("Run Simulation")
+        self.run_button = QPushButton("RUN SIMULATION")
         self.run_button.setObjectName("primaryButton")
-        self.run_button.clicked.connect(self._run_simulation)
+        self.run_button.setIcon(self._pixel_icon("play", "#FFF7E9"))
+        self.run_button.setIconSize(self._icon_size(18))
+        self.run_button.setText("RUN NORMAL")
+        self.run_button.setCheckable(True)
+        self.run_button.clicked.connect(self._run_normal_simulation)
         controls_layout.addWidget(self.run_button)
+        self.stretch_button = QPushButton("STRETCH ATTACK")
+        self.stretch_button.setObjectName("attackButton")
+        self.stretch_button.setIcon(self._pixel_icon("bolt", "#FFF7E9"))
+        self.stretch_button.setIconSize(self._icon_size(18))
+        self.stretch_button.setCheckable(True)
+        self.stretch_button.clicked.connect(self._run_stretch_simulation)
+        controls_layout.addWidget(self.stretch_button)
+        self.carousel_button = QPushButton("CAROUSEL ATTACK")
+        self.carousel_button.setObjectName("attackButton")
+        self.carousel_button.setIcon(self._pixel_icon("bolt", "#FFF7E9"))
+        self.carousel_button.setIconSize(self._icon_size(18))
+        self.carousel_button.setCheckable(True)
+        self.carousel_button.clicked.connect(self._run_carousel_simulation)
+        controls_layout.addWidget(self.carousel_button)
+        self.scenario_buttons = QButtonGroup(self)
+        self.scenario_buttons.setExclusive(True)
+        for scenario_button in (
+            self.run_button,
+            self.stretch_button,
+            self.carousel_button,
+        ):
+            self.scenario_buttons.addButton(scenario_button)
+        self.run_button.setChecked(True)
 
         playback = QHBoxLayout()
-        playback.setSpacing(8)
-        self.start_button = QPushButton("Start")
+        playback.setContentsMargins(0, 0, 0, 0)
+        playback.setSpacing(3)
+        self.start_button = QPushButton("START")
+        self.start_button.setIcon(self._pixel_icon("play", "#4B8845"))
+        self.start_button.setIconSize(self._icon_size(12))
         self.start_button.clicked.connect(self._start_animation)
-        self.pause_button = QPushButton("Pause")
+        self.pause_button = QPushButton("PAUSE")
+        self.pause_button.setIcon(self._pixel_icon("pause", "#34251E"))
+        self.pause_button.setIconSize(self._icon_size(12))
         self.pause_button.clicked.connect(self._pause_animation)
-        self.reset_button = QPushButton("Reset")
+        self.reset_button = QPushButton("RESET")
+        self.reset_button.setObjectName("resetButton")
+        self.reset_button.setIcon(self._pixel_icon("reset", "#FFF7E9"))
+        self.reset_button.setIconSize(self._icon_size(12))
         self.reset_button.clicked.connect(self._reset_animation)
         playback.addWidget(self.start_button)
         playback.addWidget(self.pause_button)
@@ -492,105 +589,188 @@ class SimulatorMainWindow(QMainWindow):
         control_separator.setFrameShape(QFrame.HLine)
         control_separator.setObjectName("separator")
         controls_layout.addWidget(control_separator)
-
         secondary_actions = QHBoxLayout()
-        secondary_actions.setSpacing(8)
-        self.experiment_button = QPushButton("Run Experiment")
+        secondary_actions.setContentsMargins(0, 0, 0, 0)
+        secondary_actions.setSpacing(6)
+        self.experiment_button = QPushButton("COMPARE")
         self.experiment_button.setObjectName("secondaryButton")
+        self.experiment_button.setIcon(self._pixel_icon("chart", "#34251E"))
+        self.experiment_button.setIconSize(self._icon_size(14))
         self.experiment_button.clicked.connect(self._run_experiment)
-        self.export_button = QPushButton("Export CSV")
+        self.export_button = QPushButton("EXPORT CSV")
+        self.export_button.setIcon(self._pixel_icon("file", "#34251E"))
+        self.export_button.setIconSize(self._icon_size(14))
         self.export_button.clicked.connect(self._export_csv)
         secondary_actions.addWidget(self.experiment_button)
         secondary_actions.addWidget(self.export_button)
         controls_layout.addLayout(secondary_actions)
         controls_layout.addStretch(1)
+        controls_panel.setWidget(controls_content)
 
         network_panel = QFrame()
         network_panel.setObjectName("networkPanel")
-        self._add_panel_shadow(network_panel)
+        network_panel.setMinimumWidth(360)
         network_layout = QVBoxLayout(network_panel)
-        network_layout.setContentsMargins(16, 14, 16, 14)
+        network_layout.setContentsMargins(12, 12, 12, 12)
         network_layout.setSpacing(8)
         network_header = QHBoxLayout()
-        network_heading = QLabel("Network topology")
+        network_heading = QLabel("NETWORK MAP")
         network_heading.setObjectName("sectionHeading")
         network_header.addWidget(network_heading)
         network_header.addStretch(1)
-        self.packet_label = QLabel("Packet: idle")
+        self.packet_label = QLabel("PACKET // IDLE")
         self.packet_label.setObjectName("packetStatus")
         network_header.addWidget(self.packet_label)
         network_layout.addLayout(network_header)
         self.network_view = LiveNetworkView(self.simulator.network)
-        self.network_view.setMinimumHeight(330)
+        self.network_view.setMinimumHeight(300)
+        self.network_view.setMinimumWidth(330)
         network_layout.addWidget(self.network_view, 1)
-        self.route_label = QLabel("Route: waiting for a simulation")
+
+        detail_panel = QFrame()
+        detail_panel.setObjectName("detailsPanel")
+        detail_panel.setMinimumWidth(205)
+        detail_layout = QVBoxLayout(detail_panel)
+        detail_layout.setContentsMargins(12, 12, 12, 12)
+        detail_layout.setSpacing(9)
+        detail_heading = QLabel("PACKET READOUT")
+        detail_heading.setObjectName("sectionHeading")
+        detail_layout.addWidget(detail_heading)
+
+        character_card = QFrame()
+        character_card.setObjectName("characterCard")
+        character_layout = QHBoxLayout(character_card)
+        character_layout.setContentsMargins(8, 6, 8, 6)
+        character_layout.setSpacing(10)
+        self.character_preview = QLabel()
+        self.character_preview.setObjectName("characterPreview")
+        self.character_preview.setPixmap(self._pixel_character_pixmap(1.0, 4))
+        self.character_preview.setFixedSize(64, 64)
+        self.character_preview.setAlignment(Qt.AlignCenter)
+        character_layout.addWidget(self.character_preview)
+        character_metrics = QVBoxLayout()
+        character_metrics.setSpacing(4)
+        character_metrics.addWidget(self._hud_caption("TTL"))
+        self.readout_ttl_value = QLabel(self.ttl_input.currentText())
+        self.readout_ttl_value.setObjectName("readoutValue")
+        character_metrics.addWidget(self.readout_ttl_value)
+        self.readout_ttl_bar = QProgressBar()
+        self.readout_ttl_bar.setObjectName("ttlBar")
+        self.readout_ttl_bar.setRange(0, int(self.ttl_input.currentText()))
+        self.readout_ttl_bar.setValue(int(self.ttl_input.currentText()))
+        self.readout_ttl_bar.setTextVisible(False)
+        self.readout_ttl_bar.setFixedHeight(9)
+        character_metrics.addWidget(self.readout_ttl_bar)
+        character_layout.addLayout(character_metrics, 1)
+        detail_layout.addWidget(character_card)
+
+        route_caption = self._hud_caption("ACTIVE ROUTE")
+        detail_layout.addWidget(route_caption)
+        self.route_label = QLabel("Awaiting transmission")
         self.route_label.setObjectName("routeLabel")
         self.route_label.setWordWrap(True)
-        network_layout.addWidget(self.route_label)
+        detail_layout.addWidget(self.route_label)
+        readout_form = QFormLayout()
+        readout_form.setContentsMargins(0, 4, 0, 0)
+        readout_form.setHorizontalSpacing(8)
+        readout_form.setVerticalSpacing(10)
+        self.metric_status = self._add_readout_value(readout_form, "PACKET")
+        self.metric_hops = self._add_readout_value(readout_form, "HOPS")
+        self.metric_ttl = self._add_readout_value(readout_form, "TTL LEFT")
+        self.metric_energy = self._add_readout_value(readout_form, "ENERGY USED")
+        self.metric_alive = self._add_readout_value(readout_form, "NODES ALIVE")
+        self.attacker_status_label = self._add_readout_value(
+            readout_form, "VAMPIRE"
+        )
+        detail_layout.addLayout(readout_form)
+        energy_caption = self._hud_caption("NETWORK ENERGY")
+        detail_layout.addWidget(energy_caption)
+        self.readout_energy_bar = QProgressBar()
+        self.readout_energy_bar.setObjectName("energyBar")
+        self.readout_energy_bar.setRange(0, 100 * ENERGY_PERCENT_SCALE)
+        self.readout_energy_bar.setTextVisible(False)
+        self.readout_energy_bar.setFixedHeight(10)
+        detail_layout.addWidget(self.readout_energy_bar)
+        detail_layout.addStretch(1)
+
         content.addWidget(controls_panel)
         content.addWidget(network_panel)
+        content.addWidget(detail_panel)
         content.setStretchFactor(0, 0)
         content.setStretchFactor(1, 1)
-        content.setSizes([315, 810])
-        root_layout.addWidget(content, 1)
+        content.setStretchFactor(2, 0)
+        content.setSizes([245, 720, 245])
+        root_layout.addWidget(content, 5)
 
         results_panel = QFrame()
         results_panel.setObjectName("resultsPanel")
-        self._add_panel_shadow(results_panel)
         results_layout = QVBoxLayout(results_panel)
-        results_layout.setContentsMargins(16, 12, 16, 12)
-        results_layout.setSpacing(8)
-        results_header = QHBoxLayout()
-        results_heading = QLabel("Results")
-        results_heading.setObjectName("sectionHeading")
-        results_header.addWidget(results_heading)
-        results_header.addStretch(1)
-        results_layout.addLayout(results_header)
-
-        metrics = QHBoxLayout()
-        metrics.setSpacing(0)
-        self.metric_status = self._add_metric(metrics, "Packet status", "—")
-        self.metric_hops = self._add_metric(metrics, "Hops", "—")
-        self.metric_energy = self._add_metric(metrics, "Energy consumed", "—")
-        self.metric_alive = self._add_metric(metrics, "Alive nodes", "—")
-        self.metric_ttl = self._add_metric(metrics, "TTL remaining", "—")
-        results_layout.addLayout(metrics)
+        results_layout.setContentsMargins(10, 8, 10, 8)
+        results_layout.setSpacing(4)
+        self.results_tabs = QTabWidget()
+        self.results_tabs.setObjectName("logTabs")
+        self.event_table = QTableWidget(0, 5)
+        self.event_table.setHorizontalHeaderLabels(
+            ["TIME", "NODE", "EVENT", "DETAILS", "STATUS"]
+        )
+        event_header = self.event_table.horizontalHeader()
+        event_header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        event_header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        event_header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        event_header.setSectionResizeMode(3, QHeaderView.Stretch)
+        event_header.setSectionResizeMode(4, QHeaderView.ResizeToContents)
+        self._prepare_table(self.event_table)
+        self.event_table.setMinimumHeight(130)
+        self.results_tabs.addTab(self.event_table, "EVENT LOG")
 
         self.results_table = QTableWidget(0, 5)
         self.results_table.setHorizontalHeaderLabels(
-            ["Scenario", "Status", "Hops", "Energy consumed (J)", "Alive nodes"]
+            ["SCENARIO", "STATUS", "HOPS", "ENERGY USED (J)", "NODES ALIVE"]
         )
-        header = self.results_table.horizontalHeader()
-        header.setSectionResizeMode(QHeaderView.ResizeToContents)
-        header.setStretchLastSection(True)
-        self.results_table.setAlternatingRowColors(True)
-        self.results_table.setSelectionBehavior(QTableWidget.SelectRows)
-        self.results_table.setEditTriggers(QTableWidget.NoEditTriggers)
-        self.results_table.setShowGrid(False)
-        self.results_table.verticalHeader().setVisible(False)
-        self.results_table.setMinimumHeight(130)
-        self.results_table.setMaximumHeight(185)
-        results_layout.addWidget(self.results_table)
-        root_layout.addWidget(results_panel)
+        result_header = self.results_table.horizontalHeader()
+        result_header.setSectionResizeMode(QHeaderView.ResizeToContents)
+        result_header.setStretchLastSection(True)
+        self._prepare_table(self.results_table)
+        self.results_tabs.addTab(self.results_table, "RUN RESULTS")
+        results_layout.addWidget(self.results_tabs)
+        root_layout.addWidget(results_panel, 2)
 
         self.setStyleSheet(self._application_stylesheet())
         self._refresh_attacker()
-        self._update_attacker_enabled()
         self._refresh_results()
+        self._refresh_hud()
 
-    def _update_attacker_enabled(self, _scenario: str | None = None) -> None:
-        del _scenario
-        enabled = self.scenario_input.currentText() != "Normal"
-        self.attacker_input.setEnabled(enabled)
-        self.attacker_input.setToolTip(
-            "Select the attacker sensor node"
-            if enabled
-            else "Attacker selection is not used in Normal mode"
-        )
+    def _select_scenario(self, scenario: str) -> None:
+        self._scenario = scenario
+        self.hud_mode.setText(scenario.upper())
+        button = {
+            "Normal": self.run_button,
+            "Stretch": self.stretch_button,
+            "Carousel": self.carousel_button,
+        }[scenario]
+        button.setChecked(True)
         self._refresh_attacker()
 
     def _set_status(self, text: str, state: str = "idle") -> None:
-        self.status_label.setText(text)
+        display_text = {
+            "running": "SIMULATION RUNNING...",
+            "delivered": "PACKET DELIVERED",
+            "expired": "PACKET LOST · TTL",
+            "dropped": "PACKET DROPPED",
+            "failed": "PACKET FAILED · NO ROUTE",
+            "error": "SIMULATION FAILED",
+        }.get(state, text.upper())
+        self.status_label.setText(display_text)
+        if hasattr(self, "hud_state"):
+            short_status = {
+                "running": "RUNNING",
+                "delivered": "DELIVERED",
+                "expired": "TTL EXPIRED",
+                "dropped": "DROPPED",
+                "failed": "FAILED",
+                "error": "FAILED",
+            }
+            self.hud_state.setText(short_status.get(state, text.upper()[:18]))
         self.status_label.setProperty("state", state)
         self.status_label.style().unpolish(self.status_label)
         self.status_label.style().polish(self.status_label)
@@ -600,10 +780,131 @@ class SimulatorMainWindow(QMainWindow):
         state = value.casefold()
         self.metric_status.setProperty(
             "state",
-            state if state in {"delivered", "expired", "dropped"} else "",
+            state if state in {"delivered", "expired", "dropped", "failed"} else "",
         )
         self.metric_status.style().unpolish(self.metric_status)
         self.metric_status.style().polish(self.metric_status)
+
+    def _refresh_hud(
+        self,
+        *,
+        ttl: object | None = None,
+        energy: Mapping[str, object] | None = None,
+    ) -> None:
+        completed_packets = len(self.simulator.get_results())
+        self.hud_packets.setText(
+            str(completed_packets + int(self._active_packet))
+        )
+        if ttl is None:
+            ttl = int(self.ttl_input.currentText())
+        self.hud_ttl.setText(str(ttl))
+        try:
+            ttl_value = max(0, int(ttl))
+        except (TypeError, ValueError):
+            ttl_value = 0
+        ttl_maximum = max(1, int(self.ttl_input.currentText()))
+        self.readout_ttl_value.setText(str(ttl))
+        self.readout_ttl_bar.setMaximum(ttl_maximum)
+        self.readout_ttl_bar.setValue(min(ttl_value, ttl_maximum))
+        ttl_state = (
+            "danger"
+            if ttl_value / ttl_maximum <= 0.3
+            else "warning"
+            if ttl_value / ttl_maximum <= 0.6
+            else ""
+        )
+        self.readout_ttl_bar.setProperty("state", ttl_state)
+        self.readout_ttl_bar.style().unpolish(self.readout_ttl_bar)
+        self.readout_ttl_bar.style().polish(self.readout_ttl_bar)
+        self.character_preview.setPixmap(
+            self._pixel_character_pixmap(ttl_value / ttl_maximum, 4)
+        )
+
+        if energy is not None:
+            self._displayed_energy = dict(energy)
+        energy_state = self._displayed_energy
+        remaining_energy = (
+            sum(
+                value
+                for value in energy_state.values()
+                if isinstance(value, (int, float)) and not isinstance(value, bool)
+            )
+            if energy_state is not None
+            else sum(node.energy for node in self.simulator.network.nodes.values())
+        )
+        total_energy = sum(
+            node.initial_energy for node in self.simulator.network.nodes.values()
+        )
+        energy_percent = (
+            max(0.0, min(100.0, 100 * remaining_energy / total_energy))
+            if total_energy > 0
+            else 0.0
+        )
+        self.hud_energy.setText(f"{energy_percent:.4f}%")
+        energy_bar_value = round(energy_percent * ENERGY_PERCENT_SCALE)
+        self.hud_energy_bar.setValue(energy_bar_value)
+        self.readout_energy_bar.setValue(self.hud_energy_bar.value())
+
+    def _update_ttl_controls(self, value: str) -> None:
+        ttl = int(value)
+        self.hud_ttl.setText(str(ttl))
+        self.readout_ttl_value.setText(str(ttl))
+        self.readout_ttl_bar.setMaximum(max(1, ttl))
+        self.readout_ttl_bar.setValue(ttl)
+        self.readout_ttl_bar.setProperty("state", "")
+        self.readout_ttl_bar.style().unpolish(self.readout_ttl_bar)
+        self.readout_ttl_bar.style().polish(self.readout_ttl_bar)
+        self.character_preview.setPixmap(self._pixel_character_pixmap(1.0, 4))
+
+    def _append_event(
+        self,
+        node: str,
+        event_name: str,
+        details: str,
+        status: str,
+        *,
+        alarm: bool = False,
+    ) -> None:
+        elapsed = max(0.0, perf_counter() - self._run_started_at)
+        minutes, remaining_seconds = divmod(elapsed, 60)
+        timestamp = f"{int(minutes):02}:{remaining_seconds:06.3f}"
+        row = self.event_table.rowCount()
+        self.event_table.insertRow(row)
+        values = (timestamp, node, event_name, details, status.upper())
+        for column, value in enumerate(values):
+            item = QTableWidgetItem(value)
+            if column == 4:
+                normalized_status = status.upper()
+                if normalized_status in {"DELIVERED", "COMPLETE", "RUNNING"}:
+                    item.setForeground(QColor("#4B8845"))
+                elif normalized_status in {"IN_TRANSIT", "IN PROGRESS"}:
+                    item.setForeground(QColor("#A16B2D"))
+                elif normalized_status == "ATTACKER":
+                    item.setForeground(QColor("#D95735"))
+                elif normalized_status in {"EXPIRED", "DROPPED", "FAILED"}:
+                    item.setForeground(QColor("#D95735"))
+            if alarm:
+                item.setForeground(QColor("#D95735"))
+            self.event_table.setItem(row, column, item)
+        self.event_table.scrollToBottom()
+
+    def _run_stretch_simulation(self) -> None:
+        if self._thread is not None:
+            return
+        self._select_scenario("Stretch")
+        self._run_simulation()
+
+    def _run_normal_simulation(self) -> None:
+        if self._thread is not None:
+            return
+        self._select_scenario("Normal")
+        self._run_simulation()
+
+    def _run_carousel_simulation(self) -> None:
+        if self._thread is not None:
+            return
+        self._select_scenario("Carousel")
+        self._run_simulation()
 
     @staticmethod
     def _add_metric(layout: QHBoxLayout, label: str, value: str) -> QLabel:
@@ -620,6 +921,178 @@ class SimulatorMainWindow(QMainWindow):
         metric_layout.addWidget(value_label)
         layout.addWidget(container, 1)
         return value_label
+
+    @staticmethod
+    def _hud_caption(text: str) -> QLabel:
+        label = QLabel(text)
+        label.setObjectName("hudCaption")
+        return label
+
+    @staticmethod
+    def _icon_size(size: int) -> QSize:
+        return QSize(size, size)
+
+    @staticmethod
+    def _pixel_icon_pixmap(kind: str, size: int = 16) -> QPixmap:
+        image = QPixmap(size, size)
+        image.fill(Qt.transparent)
+        painter = QPainter(image)
+        painter.setRenderHint(QPainter.Antialiasing, False)
+        painter.scale(size / 16, size / 16)
+        dark = QColor("#34251E")
+        fill = QColor("#4B8845")
+        painter.setPen(Qt.NoPen)
+        if kind == "shield":
+            painter.setBrush(dark)
+            for x, y, width, height in (
+                (3, 1, 10, 3), (1, 3, 14, 7), (2, 9, 12, 3),
+                (4, 12, 8, 2), (6, 14, 4, 1),
+            ):
+                painter.drawRect(x, y, width, height)
+            painter.setBrush(fill)
+            for x, y, width, height in (
+                (4, 2, 8, 2), (3, 4, 10, 5), (4, 9, 8, 2),
+                (6, 11, 4, 2),
+            ):
+                painter.drawRect(x, y, width, height)
+            painter.setBrush(QColor("#F0C84B"))
+            painter.drawRect(7, 5, 2, 5)
+            painter.drawRect(5, 7, 6, 2)
+        elif kind == "play":
+            painter.setBrush(fill)
+            painter.drawPolygon(QPolygon([QPoint(4, 2), QPoint(13, 8), QPoint(4, 14)]))
+        elif kind == "bolt":
+            painter.setBrush(fill)
+            painter.drawPolygon(
+                QPolygon(
+                    [
+                        QPoint(9, 1), QPoint(3, 9), QPoint(7, 9),
+                        QPoint(6, 15), QPoint(13, 6), QPoint(9, 6),
+                    ]
+                )
+            )
+        elif kind == "pause":
+            painter.setBrush(fill)
+            painter.drawRect(3, 3, 4, 10)
+            painter.drawRect(9, 3, 4, 10)
+        elif kind == "reset":
+            painter.setBrush(fill)
+            painter.drawRect(3, 3, 9, 3)
+            painter.drawRect(2, 5, 3, 6)
+            painter.drawRect(4, 10, 8, 3)
+            painter.drawRect(10, 7, 3, 4)
+            painter.setBrush(QColor("#FFF7E9"))
+            painter.drawRect(6, 6, 4, 3)
+        elif kind == "chart":
+            painter.setBrush(fill)
+            painter.drawRect(2, 8, 3, 6)
+            painter.drawRect(7, 4, 3, 10)
+            painter.drawRect(12, 1, 3, 13)
+        elif kind == "file":
+            painter.setBrush(dark)
+            painter.drawRect(3, 1, 10, 14)
+            painter.setBrush(QColor("#FFF7E9"))
+            painter.drawRect(5, 3, 6, 2)
+            painter.drawRect(5, 7, 6, 1)
+            painter.drawRect(5, 10, 6, 1)
+        painter.end()
+        return image
+
+    @classmethod
+    def _pixel_icon(cls, kind: str, color: str) -> QIcon:
+        image = cls._pixel_icon_pixmap(kind)
+        painter = QPainter(image)
+        painter.setRenderHint(QPainter.Antialiasing, False)
+        painter.setCompositionMode(QPainter.CompositionMode_SourceIn)
+        painter.fillRect(image.rect(), QColor(color))
+        painter.end()
+        return QIcon(image)
+
+    @staticmethod
+    def _pixel_character_pixmap(ttl_ratio: float, pixel_size: int = 3) -> QPixmap:
+        ratio = max(0.0, min(1.0, ttl_ratio))
+        body_color = (
+            "#4B8845" if ratio > 0.6
+            else "#C79B35" if ratio > 0.3
+            else "#D95735"
+        )
+        rows = (
+            "....DDDD....",
+            "...DGGGGD...",
+            "..DGGWWGGD..",
+            "..DGGWWGGD..",
+            "...DDSSDD...",
+            "....SSSS....",
+            "...DDDDDD...",
+            "..DDCCCCDD..",
+            "..DDCCCCDD..",
+            "...DCCCCD...",
+            "....DCCD....",
+            "....D..D....",
+            "...DD..DD...",
+            "..DDD..DDD..",
+        )
+        colors = {
+            "D": "#34251E",
+            "G": "#299C73",
+            "W": "#FFF7E9",
+            "S": "#E4AA6D",
+            "C": body_color,
+        }
+        image = QPixmap(12 * pixel_size, 14 * pixel_size)
+        image.fill(Qt.transparent)
+        painter = QPainter(image)
+        painter.setRenderHint(QPainter.Antialiasing, False)
+        for y, row in enumerate(rows):
+            for x, cell in enumerate(row):
+                if cell != ".":
+                    painter.fillRect(
+                        x * pixel_size,
+                        y * pixel_size,
+                        pixel_size,
+                        pixel_size,
+                        QColor(colors[cell]),
+                    )
+        painter.end()
+        return image
+
+    @classmethod
+    def _add_hud_stat(
+        cls,
+        layout: QHBoxLayout,
+        caption: str,
+        value: str,
+    ) -> QLabel:
+        card = QFrame()
+        card.setObjectName("hudCard")
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(10, 7, 10, 7)
+        card_layout.setSpacing(2)
+        card_layout.addWidget(cls._hud_caption(caption))
+        value_label = QLabel(value)
+        value_label.setObjectName("hudValue")
+        card_layout.addWidget(value_label)
+        layout.addWidget(card, 1)
+        return value_label
+
+    @staticmethod
+    def _add_readout_value(form: QFormLayout, caption: str) -> QLabel:
+        label = QLabel(caption)
+        label.setObjectName("readoutCaption")
+        value = QLabel("—")
+        value.setObjectName("readoutValue")
+        value.setWordWrap(True)
+        form.addRow(label, value)
+        return value
+
+    @staticmethod
+    def _prepare_table(table: QTableWidget) -> None:
+        table.setAlternatingRowColors(True)
+        table.setSelectionBehavior(QTableWidget.SelectRows)
+        table.setEditTriggers(QTableWidget.NoEditTriggers)
+        table.setShowGrid(False)
+        table.verticalHeader().setVisible(False)
+        table.setWordWrap(False)
 
     @staticmethod
     def _add_panel_shadow(panel: QFrame) -> None:
@@ -717,7 +1190,8 @@ class SimulatorMainWindow(QMainWindow):
                 padding: 2px 6px;
             }
             QLabel#metricValue[state="expired"],
-            QLabel#metricValue[state="dropped"] {
+            QLabel#metricValue[state="dropped"],
+            QLabel#metricValue[state="failed"] {
                 color: #FFFFFF;
                 background: #EA580C;
                 padding: 2px 6px;
@@ -860,6 +1334,322 @@ class SimulatorMainWindow(QMainWindow):
             QSplitter::handle {
                 background: transparent;
             }
+            QWidget#application {
+                background: #F1CDB5;
+                color: #34251E;
+                font-family: "Courier New";
+                font-size: 9pt;
+            }
+            QFrame#controlsPanel, QFrame#networkPanel,
+            QFrame#detailsPanel, QFrame#resultsPanel {
+                background: #FFF7E9;
+                border: 2px solid #34251E;
+                border-radius: 0;
+            }
+            QScrollArea#controlsPanel {
+                background: #FFF7E9;
+                border: 2px solid #34251E;
+            }
+            QWidget#controlsContent {
+                background: #FFF7E9;
+            }
+            QScrollBar:vertical {
+                background: #F1CDB5;
+                width: 10px;
+                margin: 0;
+                border: 1px solid #34251E;
+            }
+            QScrollBar::handle:vertical {
+                background: #795D4A;
+                min-height: 24px;
+                border: 1px solid #34251E;
+            }
+            QScrollBar::add-line:vertical,
+            QScrollBar::sub-line:vertical {
+                height: 0;
+            }
+            QFrame#hudCard {
+                background: #FFE8D4;
+                border: 2px solid #34251E;
+                border-radius: 0;
+            }
+            QFrame#resultsPanel {
+                border-top: 2px solid #34251E;
+            }
+            QLabel#title {
+                color: #34251E;
+                font-family: "Courier New";
+                font-size: 19pt;
+                font-weight: 900;
+                border-bottom: 3px solid #4B8845;
+                padding-bottom: 3px;
+            }
+            QLabel#subtitle, QLabel#hudCaption, QLabel#readoutCaption {
+                color: #795D4A;
+                font-family: "Courier New";
+                font-size: 8pt;
+                font-weight: 700;
+            }
+            QLabel#hudValue {
+                color: #34251E;
+                font-family: "Courier New";
+                font-size: 12pt;
+                font-weight: 900;
+            }
+            QLabel#statusIndicator {
+                background: #FFF7E9;
+                color: #34251E;
+                border: 2px solid #34251E;
+                border-radius: 0;
+                padding: 6px 10px;
+                font-family: "Courier New";
+                font-size: 9pt;
+                font-weight: 900;
+            }
+            QLabel#statusIndicator[state="running"],
+            QLabel#statusIndicator[state="delivered"] {
+                background: #4B8845;
+                color: #FFF7E9;
+                border-color: #34251E;
+            }
+            QLabel#statusIndicator[state="expired"],
+            QLabel#statusIndicator[state="dropped"],
+            QLabel#statusIndicator[state="failed"],
+            QLabel#statusIndicator[state="error"] {
+                background: #D95735;
+                color: #FFF7E9;
+                border-color: #34251E;
+            }
+            QLabel#sectionHeading {
+                color: #34251E;
+                font-family: "Courier New";
+                font-size: 10pt;
+                font-weight: 900;
+                border-left: 5px solid #4B8845;
+                padding-left: 7px;
+            }
+            QLabel#packetStatus, QLabel#routeLabel, QLabel#readoutValue {
+                color: #34251E;
+                font-family: "Courier New";
+                font-size: 9pt;
+                font-weight: 700;
+            }
+            QLabel#routeLabel {
+                color: #4B8845;
+            }
+            QLabel#readoutValue[state="delivered"] {
+                color: #4B8845;
+            }
+            QLabel#readoutValue[state="expired"],
+            QLabel#readoutValue[state="dropped"],
+            QLabel#readoutValue[state="failed"] {
+                color: #D95735;
+            }
+            QLabel#readoutValue[state="selected"],
+            QLabel#readoutValue[state="active"] {
+                color: #D95735;
+                font-weight: 900;
+            }
+            QSpinBox, QComboBox {
+                background: #FFFDF7;
+                color: #34251E;
+                border: 2px solid #795D4A;
+                border-radius: 0;
+                min-height: 27px;
+                padding: 2px 6px;
+                selection-background-color: #4B8845;
+            }
+            QComboBox#attackerInput {
+                border: 2px solid #D95735;
+            }
+            QSpinBox:focus, QComboBox:focus {
+                border: 2px solid #4B8845;
+            }
+            QComboBox#attackerInput:focus {
+                border-color: #D95735;
+            }
+            QComboBox::drop-down {
+                width: 22px;
+                border-left: 2px solid #795D4A;
+            }
+            QComboBox::down-arrow {
+                image: none;
+                width: 0;
+                height: 0;
+                border-left: 5px solid transparent;
+                border-right: 5px solid transparent;
+                border-top: 6px solid #34251E;
+            }
+            QComboBox QAbstractItemView {
+                background: #FFF7E9;
+                color: #34251E;
+                border: 2px solid #34251E;
+                selection-background-color: #4B8845;
+                selection-color: #FFF7E9;
+            }
+            QComboBox:disabled, QSpinBox:disabled {
+                background: #EAD9C8;
+                color: #A58C78;
+                border-color: #A58C78;
+            }
+            QPushButton {
+                background: #FFF7E9;
+                color: #34251E;
+                border: 2px solid #34251E;
+                border-radius: 0;
+                min-height: 29px;
+                padding: 3px 7px;
+                font-family: "Courier New";
+                font-size: 8pt;
+                font-weight: 900;
+            }
+            QPushButton:hover:enabled {
+                background: #E9D3BB;
+            }
+            QPushButton:pressed:enabled {
+                background: #795D4A;
+                color: #FFF7E9;
+                padding-top: 6px;
+                padding-left: 10px;
+            }
+            QPushButton:disabled {
+                color: #A58C78;
+                background: #EAD9C8;
+                border-color: #A58C78;
+            }
+            QPushButton#primaryButton {
+                background: #4B8845;
+                color: #FFF7E9;
+                border: 3px solid #34251E;
+                border-top-color: #83B66D;
+                border-left-color: #83B66D;
+                min-height: 37px;
+                font-size: 9pt;
+            }
+            QPushButton#primaryButton:hover:enabled {
+                background: #5D9B55;
+                color: #FFF7E9;
+            }
+            QPushButton#attackButton {
+                background: #E89A36;
+                color: #FFF7E9;
+                border: 3px solid #34251E;
+                border-top-color: #F6C66E;
+                border-left-color: #F6C66E;
+                min-height: 35px;
+            }
+            QPushButton#attackButton:hover:enabled {
+                background: #F0AD4A;
+            }
+            QPushButton#attackButton:checked {
+                background: #D95735;
+                color: #FFF7E9;
+            }
+            QPushButton#resetButton {
+                background: #C83F32;
+                color: #FFF7E9;
+                border: 2px solid #34251E;
+                border-top-color: #ED8068;
+                border-left-color: #ED8068;
+            }
+            QPushButton#resetButton:hover:enabled {
+                background: #DE5141;
+            }
+            QPushButton#resetButton:pressed:enabled {
+                background: #9E3028;
+                color: #FFF7E9;
+            }
+            QPushButton#secondaryButton {
+                background: #E9B27F;
+                color: #34251E;
+            }
+            QProgressBar#energyBar {
+                background: #F1CDB5;
+                border: 1px solid #34251E;
+                border-radius: 0;
+                text-align: center;
+            }
+            QProgressBar#energyBar::chunk {
+                background: #4B8845;
+            }
+            QProgressBar#ttlBar {
+                background: #EAD9C8;
+                border: 1px solid #34251E;
+                border-radius: 0;
+                text-align: center;
+            }
+            QProgressBar#ttlBar::chunk {
+                background: #4B8845;
+            }
+            QProgressBar#ttlBar[state="warning"]::chunk {
+                background: #D8B646;
+            }
+            QProgressBar#ttlBar[state="danger"]::chunk {
+                background: #D95735;
+            }
+            QFrame#characterCard {
+                background: #FFE8D4;
+                border: 2px solid #795D4A;
+            }
+            QLabel#characterPreview {
+                background: #FFF7E9;
+                border: 2px solid #34251E;
+            }
+            QLabel#gameShield {
+                background: #FFE8D4;
+                border: 2px solid #34251E;
+                padding: 2px;
+            }
+            QLabel#title {
+                font-size: 16pt;
+            }
+            QTabWidget#logTabs::pane {
+                background: #FFF7E9;
+                border: 2px solid #34251E;
+                top: -1px;
+            }
+            QTabBar::tab {
+                background: #E9D3BB;
+                color: #34251E;
+                border: 2px solid #34251E;
+                border-bottom: none;
+                padding: 4px 6px;
+                font-family: "Courier New";
+                font-size: 8pt;
+                font-weight: 900;
+            }
+            QTabBar::tab:selected {
+                background: #FFF7E9;
+                color: #4B8845;
+            }
+            QTableWidget {
+                background: #FFFDF7;
+                alternate-background-color: #F9EBDD;
+                color: #34251E;
+                border: 1px solid #795D4A;
+                gridline-color: #E5C9B0;
+                selection-background-color: #DDE8D6;
+                selection-color: #34251E;
+                font-family: "Courier New";
+                font-size: 8pt;
+            }
+            QHeaderView::section {
+                background: #E9B27F;
+                color: #34251E;
+                border: none;
+                border-bottom: 2px solid #34251E;
+                padding: 5px 7px;
+                font-family: "Courier New";
+                font-weight: 900;
+            }
+            QSplitter::handle {
+                background: #C99A78;
+            }
+            QFrame#separator {
+                background: #D6B291;
+                color: #D6B291;
+                max-height: 2px;
+            }
         """
 
     def _preferred_node_id(
@@ -875,19 +1665,28 @@ class SimulatorMainWindow(QMainWindow):
         del _text
         attacker_id = self.attacker_input.currentText().strip()
         sink = self.simulator.network.sink
-        self.network_view.set_attacker(
-            attacker_id
-            if (
-                self.scenario_input.currentText() != "Normal"
-                and attacker_id in self.simulator.network.nodes
-                and (sink is None or attacker_id != sink.id)
-            )
-            else None
+        valid_attacker = (
+            bool(attacker_id)
+            and attacker_id in self.simulator.network.nodes
+            and (sink is None or attacker_id != sink.id)
         )
+        self.network_view.set_attacker(attacker_id if valid_attacker else None)
+        attack_selected = valid_attacker and self._scenario != "Normal"
+        if hasattr(self, "attacker_status_label"):
+            self._set_attacker_status(
+                f"SELECTED · {attacker_id}" if attack_selected else "OFF",
+                "selected" if attack_selected else "",
+            )
+
+    def _set_attacker_status(self, text: str, state: str) -> None:
+        self.attacker_status_label.setText(text)
+        self.attacker_status_label.setProperty("state", state)
+        self.attacker_status_label.style().unpolish(self.attacker_status_label)
+        self.attacker_status_label.style().polish(self.attacker_status_label)
 
     def _selected_attack(self) -> StretchAttack | CarouselAttack | None:
         attacker_id = self.attacker_input.currentText().strip()
-        scenario = self.scenario_input.currentText()
+        scenario = self._scenario
         if scenario == "Normal":
             return None
         if not attacker_id:
@@ -909,8 +1708,8 @@ class SimulatorMainWindow(QMainWindow):
         return {
             "source": source,
             "destination": destination,
-            "packet_size": self.packet_size_input.value(),
-            "ttl": self.ttl_input.value(),
+            "packet_size": int(self.packet_size_input.currentText()),
+            "ttl": int(self.ttl_input.currentText()),
         }
 
     def _run_simulation(self) -> None:
@@ -919,7 +1718,7 @@ class SimulatorMainWindow(QMainWindow):
         try:
             options = self._packet_options()
             attack = self._selected_attack()
-            scenario = self.scenario_input.currentText()
+            scenario = self._scenario
             self._run_energy_start = sum(
                 node.energy for node in self.simulator.network.nodes.values()
             )
@@ -969,19 +1768,53 @@ class SimulatorMainWindow(QMainWindow):
         attack: StretchAttack | CarouselAttack | None = None,
     ) -> None:
         self._delivery_popup_shown = False
-        self.network_view.reset_animation()
-        self.packet_label.setText("Packet: waiting for first transmission")
-        self.route_label.setText("Route: waiting for first transmission")
+        self._run_started_at = perf_counter()
+        self._active_packet = True
+        self._pending_hop_event = None
+        self._displayed_energy = None
+        self._progress_scenario = None
+        self._run_alive_start = {
+            node.id: node.alive for node in self.simulator.network.nodes.values()
+        }
+        self._reported_dead_nodes = {
+            node_id for node_id, is_alive in self._run_alive_start.items() if not is_alive
+        }
+        self.event_table.setRowCount(0)
+        self.network_view.reset_animation(clear_traversed=True)
+        self.packet_label.setText("PACKET // WAITING FOR TRANSMISSION")
+        self.route_label.setText("Awaiting first hop")
         self._set_metric_packet_status("—")
         self.metric_hops.setText("—")
         self.metric_energy.setText("—")
         self.metric_alive.setText("—")
         self.metric_ttl.setText("—")
+        self._set_attacker_status(
+            f"ACTIVE · {self.attacker_input.currentText()}"
+            if self._scenario != "Normal"
+            else "OFF",
+            "active" if self._scenario != "Normal" else "",
+        )
+        self._refresh_hud(ttl=int(self.ttl_input.currentText()))
+        self._append_event(
+            str(options["source"]),
+            "SIMULATION START",
+            f"{self._scenario} · "
+            f"{options['source']} → {options['destination']}",
+            "RUNNING",
+        )
         self._set_status(description, "running")
         self._set_running(True)
 
         thread = QThread(self)
-        worker = SimulationWorker(self.simulator, operation, options, attack)
+        self._run_generation += 1
+        generation = self._run_generation
+        worker = SimulationWorker(
+            self.simulator,
+            operation,
+            options,
+            generation,
+            attack,
+        )
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
         worker.progress.connect(self._show_progress)
@@ -989,36 +1822,82 @@ class SimulatorMainWindow(QMainWindow):
         worker.failed.connect(self._show_error)
         worker.finished.connect(thread.quit)
         worker.finished.connect(worker.deleteLater)
-        thread.finished.connect(self._worker_finished)
+        thread.finished.connect(
+            lambda generation=generation: self.worker_thread_finished.emit(
+                generation
+            )
+        )
         self._thread = thread
         self._worker = worker
         thread.start()
 
-    def _show_progress(self, event: object, gate: object) -> None:
+    def _show_progress(
+        self,
+        generation: int,
+        event: object,
+        gate: object,
+    ) -> None:
+        if generation != self._run_generation:
+            if isinstance(gate, Event):
+                gate.set()
+            return
         if not isinstance(event, dict) or not isinstance(gate, Event):
             return
         self._current_gate = gate
         self._packet_progress = 0.0
-        self.network_view.show_progress(event)
+        remaining_ttl = max(
+            0,
+            int(self.ttl_input.currentText()) - int(event.get("hops", 0)),
+        )
+        self.network_view.show_progress(
+            {
+                **event,
+                "ttl_remaining": remaining_ttl,
+                "ttl_max": int(self.ttl_input.currentText()),
+            }
+        )
+        self._pending_hop_event = event
         sender = str(event["sender"])
         receiver = str(event["receiver"])
         route = event.get("route", [])
         if isinstance(route, list):
-            self.route_label.setText(f"Route taken: {'  →  '.join(map(str, route))}")
+            self.route_label.setText(" → ".join(map(str, route)))
         scenario = event.get("scenario")
         scenario_prefix = f"{str(scenario).title()} | " if scenario else ""
         self.packet_label.setText(
-            f"{scenario_prefix}Packet: {event['status']} | "
-            f"{event['hops']} hops | {sender} -> {receiver}"
+            f"{scenario_prefix}PACKET // {event['status']} | "
+            f"HOP {event['hops']} | {sender} → {receiver}"
         )
+        route_kind = str(event.get("route_kind", "normal")).upper()
         self._set_status(
-            f"{scenario_prefix}{str(event.get('route_kind', 'normal')).title()} route",
+            f"{scenario_prefix}{route_kind} ROUTE",
             "running",
         )
-        self._set_metric_packet_status(str(event.get("status", "—")).title())
+        status = str(event.get("status", "—"))
+        self._set_metric_packet_status(status.title())
         self.metric_hops.setText(str(event.get("hops", "—")))
         energy = event.get("node_energy")
+        alive = event.get("node_alive")
+        scenario = event.get("scenario")
+        scenario_key = str(scenario) if scenario is not None else None
+        if (
+            scenario_key is not None
+            and self._progress_scenario is not None
+            and scenario_key != self._progress_scenario
+        ):
+            self.network_view.clear_traversed_edges()
+            if isinstance(alive, dict):
+                self._reported_dead_nodes = {
+                    node_id
+                    for node_id, is_alive in self._run_alive_start.items()
+                    if not is_alive
+                }
+        self._progress_scenario = scenario_key
         if isinstance(energy, dict):
+            self._refresh_hud(
+                energy=energy,
+                ttl=remaining_ttl,
+            )
             self.metric_energy.setText(
                 self._format_energy(
                     self._run_energy_start
@@ -1029,13 +1908,45 @@ class SimulatorMainWindow(QMainWindow):
                     )
                 )
             )
-            if event.get("scenario") is None:
+            if isinstance(alive, dict):
+                self.metric_alive.setText(
+                    str(sum(value is True for value in alive.values()))
+                )
+            elif event.get("scenario") is None:
                 self.metric_alive.setText(
                     str(sum(node.alive for node in self.simulator.network.nodes.values()))
                 )
+        if isinstance(alive, dict):
+            for node_id, is_alive in alive.items():
+                if is_alive is False and node_id not in self._reported_dead_nodes:
+                    self._reported_dead_nodes.add(str(node_id))
+                    node_energy = energy.get(node_id) if isinstance(energy, dict) else 0
+                    self._append_event(
+                        str(node_id),
+                        "NODE DEATH",
+                        f"Energy depleted · {self._format_energy(node_energy)} J",
+                        "DEAD",
+                        alarm=True,
+                    )
         hops = event.get("hops")
         if isinstance(hops, int):
-            self.metric_ttl.setText(str(max(0, self.ttl_input.value() - hops)))
+            self.metric_ttl.setText(
+                str(max(0, int(self.ttl_input.currentText()) - hops))
+            )
+        attacker_id = self.attacker_input.currentText()
+        if route_kind == "ATTACKED":
+            self._set_attacker_status(f"ACTIVE · {attacker_id}", "active")
+        event_name = "ATTACK ROUTE HOP" if route_kind == "ATTACKED" else "PACKET HOP"
+        self._append_event(
+            f"{sender} → {receiver}",
+            event_name,
+            f"Hop {event.get('hops', '—')} · TTL {self.metric_ttl.text()}",
+            status,
+            alarm=(
+                receiver == attacker_id
+                and route_kind == "ATTACKED"
+            ),
+        )
         if not self._paused:
             self._animation_timer.start()
 
@@ -1044,6 +1955,23 @@ class SimulatorMainWindow(QMainWindow):
         self.network_view.set_packet_progress(self._packet_progress)
         if self._packet_progress >= 1.0:
             self._animation_timer.stop()
+            event = self._pending_hop_event
+            self._pending_hop_event = None
+            if (
+                event is not None
+                and str(event.get("receiver")) == self.attacker_input.currentText()
+                and str(event.get("route_kind", "")).casefold() == "attacked"
+            ):
+                attacker_id = self.attacker_input.currentText()
+                status = str(event.get("status", "IN_TRANSIT"))
+                self._append_event(
+                    attacker_id,
+                    "ATTACKER ENCOUNTER",
+                    f"Attacker reached on hop {event.get('hops', '—')} · "
+                    f"packet {status.lower()}",
+                    "ATTACKER",
+                    alarm=True,
+                )
             gate = self._current_gate
             self._current_gate = None
             if gate is not None:
@@ -1065,14 +1993,66 @@ class SimulatorMainWindow(QMainWindow):
             self._set_status("Animation paused", "running")
 
     def _reset_animation(self) -> None:
-        if self._thread is not None:
+        self._animation_timer.stop()
+        self._run_generation += 1
+        thread = self._thread
+        if self._worker is not None:
+            self._worker.stop_event.set()
+        if self._current_gate is not None:
+            self._current_gate.set()
+        if thread is not None:
+            thread.quit()
+            thread.wait()
+            thread.deleteLater()
+        self._thread = None
+        self._worker = None
+        self._current_gate = None
+        self._pending_hop_event = None
+        self._packet_progress = 0.0
+        self._paused = False
+        self._active_packet = False
+        self._delivery_popup_shown = False
+
+        self.simulator.reset()
+        self._displayed_energy = None
+        self._reported_dead_nodes.clear()
+        self._progress_scenario = None
+        self.simulator.attack = self._original_attack
+        self._scenario_labels.clear()
+        self._result_start_index = 0
+        self.source_input.setCurrentText(self._default_source_id)
+        self.destination_input.setCurrentText(self._default_destination_id)
+        self.attacker_input.setCurrentText(self._default_attacker_id)
+        self.packet_size_input.setCurrentText("4000")
+        self.ttl_input.setCurrentText("50")
+        self._select_scenario("Normal")
+
+        self.network_view.reset_animation()
+        self.event_table.setRowCount(0)
+        self.results_table.setRowCount(0)
+        self.packet_label.setText("PACKET // IDLE")
+        self.route_label.setText("Awaiting transmission")
+        self._set_metric_packet_status("—")
+        self.metric_hops.setText("—")
+        self.metric_ttl.setText("—")
+        self.metric_energy.setText("0 J")
+        self.metric_alive.setText(
+            str(sum(node.alive for node in self.simulator.network.nodes.values()))
+        )
+        self._refresh_hud(ttl=int(self.ttl_input.currentText()))
+        self._set_status("Ready")
+        self._set_running(False)
+
+    def _show_completion(
+        self,
+        generation: int,
+        operation: str,
+        result: object,
+    ) -> None:
+        if generation != self._run_generation:
             return
         self._animation_timer.stop()
-        self.network_view.reset_animation()
-        self.packet_label.setText("Packet: idle")
-        self._set_status("Animation reset; simulation state is unchanged")
-
-    def _show_completion(self, operation: str, result: object) -> None:
+        self.network_view.clear_traversed_edges()
         show_delivery_popup = False
         if operation == "simulation":
             status = getattr(result, "status", None)
@@ -1084,14 +2064,35 @@ class SimulatorMainWindow(QMainWindow):
             )
             route = getattr(result, "route", [])
             if isinstance(route, list):
-                self.route_label.setText(f"Route taken: {'  →  '.join(route)}")
+                self.route_label.setText(" → ".join(route))
             self._set_metric_packet_status(status_name.title())
             self.metric_hops.setText(str(hops))
             self.metric_ttl.setText(str(getattr(result, "ttl", "—")))
             self.packet_label.setText(
-                f"Packet: {status_name.title()} | {hops} hops | "
-                f"TTL {getattr(result, 'ttl', '—')} remaining"
+                f"PACKET // {status_name.upper()} | {hops} HOPS | "
+                f"TTL {getattr(result, 'ttl', '—')}"
             )
+            self.network_view.set_outcome(
+                status_name,
+                getattr(result, "ttl", "—"),
+            )
+            self._append_event(
+                f"{getattr(result, 'source', '—')} → "
+                f"{getattr(result, 'destination', '—')}",
+                (
+                    "SIMULATION FAILED"
+                    if status_name.upper() == "FAILED"
+                    else "SIMULATION COMPLETE"
+                ),
+                (
+                    "No valid live route to destination"
+                    if status_name.upper() == "FAILED"
+                    else f"{hops} hops · TTL {getattr(result, 'ttl', '—')} remaining"
+                ),
+                status_name,
+                alarm=status_name.upper() in {"EXPIRED", "DROPPED", "FAILED"},
+            )
+            self._refresh_hud(ttl=getattr(result, "ttl", "—"))
             results = self.simulator.get_results()
             if self._result_start_index < len(results):
                 self._set_metrics_from_result(results[self._result_start_index])
@@ -1118,17 +2119,31 @@ class SimulatorMainWindow(QMainWindow):
                 f"Experiment complete · {count} scenarios",
                 latest_status.lower(),
             )
+            self._append_event(
+                self.attacker_input.currentText(),
+                "EXPERIMENT COMPLETE",
+                f"{count} scenarios · latest status {latest_status or '—'}",
+                latest_status or "COMPLETE",
+                alarm=latest_status.upper() in {"EXPIRED", "DROPPED", "FAILED"},
+            )
             results = self.simulator.get_results()
             if results:
                 self._set_metrics_from_result(results[-1])
             self.metric_ttl.setText("—")
+            self.network_view.set_outcome(
+                latest_status or "COMPLETE",
+                self.metric_ttl.text(),
+            )
+            self._refresh_hud(ttl="—")
+        self._active_packet = False
+        self._refresh_hud(ttl=self.hud_ttl.text())
         self._refresh_results()
         if show_delivery_popup and not self._delivery_popup_shown:
             self._delivery_popup_shown = True
             result_row = self.simulator.get_results()[self._result_start_index]
             scenario = self._scenario_labels.get(
                 self._result_start_index,
-                self.scenario_input.currentText(),
+                self._scenario,
             )
             energy = self._format_energy(
                 result_row.get("total_energy_consumed")
@@ -1153,14 +2168,23 @@ class SimulatorMainWindow(QMainWindow):
         )
         self.metric_alive.setText(str(result.get("alive_nodes", "—")))
 
-    def _show_error(self, message: str) -> None:
+    def _show_error(self, generation: int, message: str) -> None:
+        if generation != self._run_generation:
+            return
+        self._animation_timer.stop()
+        self.network_view.clear_traversed_edges()
+        self._active_packet = False
+        self._append_event("—", "SIMULATION ERROR", message, "FAILED", alarm=True)
+        self._refresh_hud()
         self._set_status(f"Simulation failed: {message}", "error")
         self._show_message("Simulation error", message)
 
     def _show_message(self, title: str, message: str) -> None:
         StatusMessageDialog(title, message, self).exec_()
 
-    def _worker_finished(self) -> None:
+    def _worker_finished(self, generation: int) -> None:
+        if generation != self._run_generation:
+            return
         thread = self._thread
         self._thread = None
         self._worker = None
@@ -1172,6 +2196,7 @@ class SimulatorMainWindow(QMainWindow):
 
     def closeEvent(self, event) -> None:
         self._animation_timer.stop()
+        self.network_view.stop_feedback()
         if self._worker is not None:
             self._worker.stop_event.set()
         if self._current_gate is not None:
@@ -1182,12 +2207,14 @@ class SimulatorMainWindow(QMainWindow):
 
     def _set_running(self, running: bool) -> None:
         self.run_button.setEnabled(not running)
+        self.stretch_button.setEnabled(not running)
+        self.carousel_button.setEnabled(not running)
         self.experiment_button.setEnabled(not running)
         self.export_button.setEnabled(not running)
         self.start_button.setEnabled(True)
         self.start_button.setText("Resume" if running else "Start")
         self.pause_button.setEnabled(running)
-        self.reset_button.setEnabled(not running)
+        self.reset_button.setEnabled(True)
 
     def _export_csv(self) -> None:
         path, _ = QFileDialog.getSaveFileName(

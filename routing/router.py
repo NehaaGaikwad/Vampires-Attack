@@ -112,6 +112,8 @@ class Router:
         self,
         source: str,
         destination: str,
+        *,
+        excluded_nodes: set[str] | None = None,
     ) -> Optional[list[str]]:
         """Find the shortest path from *source* to *destination*.
 
@@ -147,7 +149,12 @@ class Router:
             route = router.find_route("N1", "SINK")
             # => ["N1", "N3", "N5", "SINK"]  or None
         """
-        return shortest_path(self._network, source, destination)
+        return shortest_path(
+            self._network,
+            source,
+            destination,
+            excluded_nodes=excluded_nodes,
+        )
 
     # ------------------------------------------------------------------
     # get_next_hop
@@ -192,12 +199,30 @@ class Router:
         if current_node == destination:
             return None
 
+        current = self._network.get_node(current_node)
+        target = self._network.get_node(destination)
+        if (
+            current is None
+            or not current.alive
+            or target is None
+            or not target.alive
+        ):
+            self.routing_table.remove_route(destination)
+            return None
+
         # Check routing table cache first.
         cached = self.routing_table.get_next_hop(destination)
         if cached is not None:
-            # Validate that the cached next hop is still alive.
+            # Validate that the cached next hop is still alive and reachable.
             cached_node = self._network.get_node(cached)
-            if cached_node is not None and cached_node.alive:
+            alive_neighbors = {
+                neighbor.id for neighbor in self._network.get_neighbors(current_node)
+            }
+            if (
+                cached_node is not None
+                and cached_node.alive
+                and cached in alive_neighbors
+            ):
                 return cached
             # Cache is stale — remove it and recalculate.
             self.routing_table.remove_route(destination)
@@ -267,71 +292,55 @@ class Router:
             return packet
 
         size = packet_size if packet_size is not None else packet.packet_size
+        stale_hop_retries = 0
 
-        # Find the full route from current position to destination.
-        route = shortest_path(
-            self._network,
-            packet.current_node,
-            packet.destination,
-        )
-
-        if route is None:
-            # No path to destination — drop the packet.
-            packet.mark_dropped()
-            return packet
-
-        if len(route) == 1:
-            # Already at destination — packet is implicitly delivered.
-            # No physical hop occurs; use the public mark_delivered() API.
-            if packet.current_node == packet.destination:
-                packet.mark_delivered()
-            return packet
-
-        # Walk along the route and transmit hop-by-hop.
-        for i in range(len(route) - 1):
-            sender_id = route[i]
-            receiver_id = route[i + 1]
-
-            # Safety: verify current packet position matches expected sender.
-            if packet.current_node != sender_id:
-                # Route mismatch — should not happen in normal operation.
-                packet.mark_dropped()
+        while packet.in_transit:
+            sender_id = packet.current_node
+            sender_node = self._network.get_node(sender_id)
+            if sender_node is None or not sender_node.alive:
+                packet.mark_failed()
                 return packet
-
-            # Check TTL before attempting the hop.
             if packet.ttl <= 0:
                 packet.mark_expired()
                 return packet
 
-            # Check loop before attempting the hop.
+            route = shortest_path(
+                self._network,
+                sender_id,
+                packet.destination,
+                excluded_nodes=packet.visited - {sender_id},
+            )
+            if route is None:
+                packet.mark_failed()
+                return packet
+            if len(route) == 1:
+                packet.mark_delivered()
+                return packet
+
+            receiver_id = route[1]
             if receiver_id in packet.visited:
                 packet.mark_dropped()
                 return packet
 
-            # Resolve node objects.
-            sender_node = self._network.get_node(sender_id)
             receiver_node = self._network.get_node(receiver_id)
 
-            # Dead-node safety check (node may have died since route calc).
-            if sender_node is None or not sender_node.alive:
-                packet.mark_dropped()
-                return packet
             if receiver_node is None or not receiver_node.alive:
-                packet.mark_dropped()
-                return packet
+                stale_hop_retries += 1
+                if stale_hop_retries > len(self._network.nodes):
+                    packet.mark_failed()
+                    return packet
+                continue
 
-            # Verify receiver is an actual alive neighbour of sender.
             alive_neighbour_ids = {n.id for n in self._network.get_neighbors(sender_id)}
             if receiver_id not in alive_neighbour_ids:
-                # Receiver is no longer reachable from sender.
-                packet.mark_dropped()
-                return packet
+                stale_hop_retries += 1
+                if stale_hop_retries > len(self._network.nodes):
+                    packet.mark_failed()
+                    return packet
+                continue
 
-            # Calculate distance using Network (never duplicate calculation).
             distance = self._network.distance(sender_id, receiver_id)
 
-            # Perform the physical transmission (consumes energy, updates
-            # sender.sent and receiver.received).
             try:
                 self._energy_model.transmit(
                     sender=sender_node,
@@ -340,17 +349,15 @@ class Router:
                     distance=distance,
                 )
             except NodeDeadError:
-                # A node died right at transmission time.
-                packet.mark_dropped()
-                return packet
+                stale_hop_retries += 1
+                if stale_hop_retries > len(self._network.nodes):
+                    packet.mark_failed()
+                    return packet
+                continue
 
-            # Advance packet state (updates route, visited, hops, TTL,
-            # and checks delivery / expiry / loop).
             packet.advance(receiver_id)
+            stale_hop_retries = 0
 
-            # Increment forwarded counter on the sender if it is NOT the
-            # original source node.  Only intermediate relay nodes receive
-            # a packet and then forward it onward; the source only sends.
             if sender_id != packet.source:
                 sender_node.forwarded += 1
 
@@ -365,10 +372,6 @@ class Router:
                         "hops": packet.hops,
                     }
                 )
-
-            # Stop if the packet is no longer in transit.
-            if not packet.in_transit:
-                return packet
 
         return packet
 

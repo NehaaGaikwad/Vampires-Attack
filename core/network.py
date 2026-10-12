@@ -238,6 +238,8 @@ class Network:
             raise KeyError(f"Node {node_id!r} not found in the network.")
 
         node = self._nodes[node_id]
+        if not node.alive:
+            return []
         alive_neighbors: list[Node] = []
         for neighbor_id in node.neighbors:
             neighbor = self._nodes.get(neighbor_id)
