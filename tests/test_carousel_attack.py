@@ -11,6 +11,9 @@ from attacks.carousel import CarouselAttack
 from core.network import Network
 from core.node import Node
 from core.packet import Packet
+from energy.energy_model import EnergyModel
+from routing.router import Router
+from simulator import Simulator
 
 
 @pytest.fixture
@@ -25,6 +28,26 @@ def sample_network():
     ]
     for n in nodes:
         net.add_node(n)
+    net.set_sink("SINK")
+    net.update_neighbors()
+    return net
+
+
+@pytest.fixture
+def simulator_network():
+    """The simulator's default topology, including the N5 and N6 detours."""
+    net = Network(communication_range=35.0)
+    nodes = [
+        Node("N1", 0.0, 0.0, 100.0),
+        Node("N2", 25.0, 0.0, 100.0),
+        Node("N3", 50.0, 0.0, 100.0),
+        Node("N4", 75.0, 0.0, 100.0),
+        Node("N5", 48.0, 24.0, 100.0),
+        Node("N6", 72.0, 22.0, 100.0),
+        Node("SINK", 100.0, 0.0, 500.0),
+    ]
+    for node in nodes:
+        net.add_node(node)
     net.set_sink("SINK")
     net.update_neighbors()
     return net
@@ -98,12 +121,11 @@ class TestCarouselRouteManipulation:
         route = ["N1", "N2", "N3", "SINK"]
 
         carousel_route = attack.apply(route, network=sample_network, ttl=10)
-        assert len(carousel_route) > len(route)
-        # N2 and N3 should repeat
         assert carousel_route.count("N2") > 1
-        assert carousel_route.count("N3") > 1
+        assert carousel_route[-1] == "SINK"
+        assert carousel_route[2:5] == ["N3", "N2", "N3"]
 
-    def test_source_and_destination_preserved(self, sample_network):
+    def test_source_preserved_and_destination_excluded(self, sample_network):
         attack = CarouselAttack("N2", intensity=AttackIntensity.MEDIUM)
         route = ["N1", "N2", "N3", "SINK"]
 
@@ -131,7 +153,7 @@ class TestCarouselRouteManipulation:
         high_route = high_attack.apply(route, network=sample_network, ttl=30)
 
         assert len(low_route) <= len(med_route) <= len(high_route)
-        assert len(low_route) > len(route)
+        assert low_route.count("N2") > 1
         assert len(high_route) > len(low_route)
 
     def test_attacker_at_source(self, sample_network):
@@ -157,17 +179,19 @@ class TestCarouselTTLAndSafetyConstraints:
         total_hops = len(carousel_route) - 1
         assert total_hops <= ttl
 
-    def test_ttl_equal_to_1_returns_original(self, sample_network):
+    def test_ttl_equal_to_1_never_routes_to_sink(self, sample_network):
         attack = CarouselAttack("N2", intensity=AttackIntensity.HIGH)
         route = ["N1", "N2", "N3", "SINK"]
-        # TTL of 1 cannot even support original 3-hop route
-        assert attack.apply(route, network=sample_network, ttl=1) == route
+        carousel_route = attack.apply(route, network=sample_network, ttl=1)
+        assert carousel_route == ["N1", "N2"]
+        assert "SINK" not in carousel_route
 
-    def test_ttl_budget_insufficient_for_cycle_returns_original(self, sample_network):
+    def test_high_intensity_uses_remaining_ttl_for_loop(self, sample_network):
         attack = CarouselAttack("N2", intensity=AttackIntensity.HIGH)
         route = ["N1", "N2", "N3", "SINK"]  # 3 hops
-        # TTL 4 has room for 1 hop, but a cycle needs 2 hops
-        assert attack.apply(route, network=sample_network, ttl=4) == route
+        carousel_route = attack.apply(route, network=sample_network, ttl=4)
+        assert carousel_route == ["N1", "N2", "N3", "N2", "N3"]
+        assert len(carousel_route) - 1 == 4
 
     def test_no_infinite_loop_possible(self, sample_network):
         attack = CarouselAttack("N2", intensity=AttackIntensity.HIGH)
@@ -191,9 +215,8 @@ class TestCarouselTTLAndSafetyConstraints:
     def test_missing_network_still_creates_cycle_with_next_hop(self):
         attack = CarouselAttack("N2", intensity=AttackIntensity.LOW)
         route = ["N1", "N2", "N3", "SINK"]
-        # With network=None, Carousel uses next hop N3 safely
         carousel_route = attack.apply(route, network=None, ttl=10)
-        assert carousel_route == ["N1", "N2", "N3", "N2", "N3", "SINK"]
+        assert carousel_route == ["N1", "N2", "N3", "N2"]
 
     @pytest.mark.parametrize("invalid_route", [
         [],
@@ -216,3 +239,123 @@ class TestCarouselTTLAndSafetyConstraints:
         assert carousel_route[0] == "N1"
         assert carousel_route[-1] == "SINK"
         assert carousel_route.count("N2") > 1
+
+
+class TestCarouselSimulation:
+    def test_packet_repeats_real_hops_and_expires_before_sink(self, sample_network):
+        energy = EnergyModel()
+        simulator = Simulator(
+            sample_network,
+            Router(sample_network, energy),
+            energy,
+            CarouselAttack("N2", intensity=AttackIntensity.HIGH),
+        )
+        progress: list[dict[str, object]] = []
+
+        packet = simulator.run_packet(
+            "N1",
+            "SINK",
+            packet_size=1000,
+            ttl=11,
+            on_progress=lambda event: progress.append(event.copy()),
+        )
+
+        assert packet.status.name == "EXPIRED"
+        assert packet.route[0] == "N1"
+        assert packet.route[1] == "N2"
+        assert packet.route[-1] == "N2"
+        assert packet.route.count("N2") > 1
+        assert "SINK" not in packet.route
+        assert sample_network.sink is not None
+        assert sample_network.sink.received == 0
+        assert [event["route"] for event in progress] == [
+            packet.route[: index + 2] for index in range(len(progress))
+        ]
+        assert [
+            (event["sender"], event["receiver"]) for event in progress
+        ] == list(zip(packet.route, packet.route[1:]))
+        assert all(event["route_kind"] == "attacked" for event in progress)
+        result = simulator.get_results()[0]
+        assert result["hops"] == packet.hops
+        assert result["packet_status"] == "EXPIRED"
+
+    def test_packet_loops_then_delivers_to_sink(self, simulator_network):
+        energy = EnergyModel()
+        simulator = Simulator(
+            simulator_network,
+            Router(simulator_network, energy),
+            energy,
+            CarouselAttack("N5", intensity=AttackIntensity.LOW),
+        )
+        progress: list[dict[str, object]] = []
+
+        packet = simulator.run_packet(
+            "N1",
+            "SINK",
+            ttl=8,
+            on_progress=progress.append,
+        )
+
+        assert packet.status.name == "DELIVERED"
+        assert packet.route[-1] == "SINK"
+        assert any(
+            packet.route[index : index + 3] == ["N2", "N5", "N2"]
+            for index in range(len(packet.route) - 2)
+        )
+        assert packet.hops == len(packet.route) - 1
+        assert packet.ttl == 8 - packet.hops
+        assert progress[-1]["route"] == packet.route
+        assert progress[-1]["status"] == "DELIVERED"
+        assert progress[-1]["hops"] == packet.hops
+        result = simulator.get_results()[0]
+        assert result["hops"] == packet.hops
+        assert result["packet_status"] == "DELIVERED"
+
+    @pytest.mark.parametrize("attacker_id", ["N1", "N2", "N3", "N4", "N5", "N6"])
+    def test_selected_attacker_is_used_in_actual_carousel_route(
+        self,
+        simulator_network,
+        attacker_id,
+    ):
+        energy = EnergyModel()
+        simulator = Simulator(
+            simulator_network,
+            Router(simulator_network, energy),
+            energy,
+            CarouselAttack(attacker_id, intensity=AttackIntensity.HIGH),
+        )
+        progress: list[dict[str, object]] = []
+
+        packet = simulator.run_packet(
+            "N1",
+            "SINK",
+            ttl=8,
+            on_progress=progress.append,
+        )
+
+        assert packet.status.name == "EXPIRED"
+        assert packet.hops == 8
+        assert packet.route.count(attacker_id) > 1
+        assert "SINK" not in packet.route
+        for sender, receiver in zip(packet.route, packet.route[1:]):
+            neighbor_ids = {
+                neighbor.id for neighbor in simulator_network.get_neighbors(sender)
+            }
+            assert receiver in neighbor_ids
+
+        assert progress[-1]["route"] == packet.route
+        assert progress[-1]["status"] == "EXPIRED"
+        result = simulator.get_results()[0]
+        assert result["hops"] == packet.hops
+        assert result["packet_status"] == packet.status.name
+
+        if attacker_id == "N5":
+            assert any(
+                packet.route[index : index + 3] == ["N2", "N5", "N2"]
+                for index in range(len(packet.route) - 2)
+            )
+        elif attacker_id == "N6":
+            assert any(
+                packet.route[index : index + 3] == ["N3", "N6", "N3"]
+                for index in range(len(packet.route) - 2)
+            )

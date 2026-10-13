@@ -50,6 +50,8 @@ def shortest_path(
     network: "Network",
     source: str,
     destination: str,
+    *,
+    excluded_nodes: set[str] | None = None,
 ) -> Optional[list[str]]:
     """Compute the shortest path from *source* to *destination*.
 
@@ -93,6 +95,9 @@ def shortest_path(
         return None  # destination does not exist
     if not dest_node.alive:
         return None  # destination is dead
+    excluded = excluded_nodes or set()
+    if source in excluded or destination in excluded:
+        return None
 
     # --- Trivial case ---
     if source == destination:
@@ -129,7 +134,7 @@ def shortest_path(
 
         for neighbour in neighbours:
             n_id = neighbour.id
-            if n_id in visited:
+            if n_id in visited or n_id in excluded:
                 continue
             edge_weight = network.distance(node_id, n_id)
             new_dist = dist + edge_weight
