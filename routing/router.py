@@ -370,6 +370,12 @@ class Router:
                         "receiver": receiver_id,
                         "status": packet.status.name,
                         "hops": packet.hops,
+                        "node_energy": {
+                            node.id: node.energy for node in self._network.nodes.values()
+                        },
+                        "node_alive": {
+                            node.id: node.alive for node in self._network.nodes.values()
+                        },
                     }
                 )
 

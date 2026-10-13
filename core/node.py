@@ -119,6 +119,16 @@ class Node:
         """
         return self._energy > 0.0
 
+    @property
+    def is_active(self) -> bool:
+        """``True`` if the node is alive (has remaining energy); ``False`` when dead."""
+        return self.alive
+
+    @property
+    def is_dead(self) -> bool:
+        """``True`` when the node has exhausted its energy; ``False`` while alive."""
+        return not self.alive
+
     def consume_energy(self, amount: float) -> None:
         """Deduct *amount* Joules from the node's battery.
 

@@ -2092,7 +2092,16 @@ class SimulatorMainWindow(QMainWindow):
                 status_name,
                 alarm=status_name.upper() in {"EXPIRED", "DROPPED", "FAILED"},
             )
-            self._refresh_hud(ttl=getattr(result, "ttl", "—"))
+            backend_energy = {
+                node.id: node.energy for node in self.simulator.network.nodes.values()
+            }
+            backend_alive = {
+                node.id: node.alive for node in self.simulator.network.nodes.values()
+            }
+            self.network_view.node_energy.update(backend_energy)
+            self.network_view.node_alive.update(backend_alive)
+            self.network_view.update()
+            self._refresh_hud(energy=backend_energy, ttl=getattr(result, "ttl", "—"))
             results = self.simulator.get_results()
             if self._result_start_index < len(results):
                 self._set_metrics_from_result(results[self._result_start_index])
@@ -2175,7 +2184,16 @@ class SimulatorMainWindow(QMainWindow):
         self.network_view.clear_traversed_edges()
         self._active_packet = False
         self._append_event("—", "SIMULATION ERROR", message, "FAILED", alarm=True)
-        self._refresh_hud()
+        backend_energy = {
+            node.id: node.energy for node in self.simulator.network.nodes.values()
+        }
+        backend_alive = {
+            node.id: node.alive for node in self.simulator.network.nodes.values()
+        }
+        self.network_view.node_energy.update(backend_energy)
+        self.network_view.node_alive.update(backend_alive)
+        self.network_view.update()
+        self._refresh_hud(energy=backend_energy)
         self._set_status(f"Simulation failed: {message}", "error")
         self._show_message("Simulation error", message)
 

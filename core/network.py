@@ -247,6 +247,10 @@ class Network:
                 alive_neighbors.append(neighbor)
         return alive_neighbors
 
+    def get_alive_nodes(self) -> list[Node]:
+        """Return all currently alive nodes in the network."""
+        return [node for node in self._nodes.values() if node.alive]
+
     # ------------------------------------------------------------------
     # Dunder helpers
     # ------------------------------------------------------------------

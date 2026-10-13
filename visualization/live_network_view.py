@@ -24,8 +24,12 @@ class LiveNetworkView(QWidget):
         self.packet_status = "IDLE"
         self.ttl_remaining = 0
         self.ttl_maximum = 1
-        self.node_energy: dict[str, float] = {}
-        self.node_alive: dict[str, bool] = {}
+        self.node_energy: dict[str, float] = {
+            node.id: float(node.energy) for node in network.nodes.values()
+        }
+        self.node_alive: dict[str, bool] = {
+            node.id: bool(node.alive) for node in network.nodes.values()
+        }
         self._outcome_status = ""
         self._feedback_elapsed = 0
         self._feedback_timer = QTimer(self)
@@ -75,20 +79,19 @@ class LiveNetworkView(QWidget):
         )
         self._outcome_status = ""
         self._feedback_timer.stop()
-        self.node_energy = (
-            {str(node_id): float(value) for node_id, value in energy.items()}
-            if isinstance(energy, dict)
-            else {}
-        )
-        self.node_alive = (
-            {
-                str(node_id): value
-                for node_id, value in alive.items()
-                if isinstance(value, bool)
-            }
-            if isinstance(alive, dict)
-            else {}
-        )
+        if isinstance(energy, dict):
+            for node_id, value in energy.items():
+                val = float(value)
+                self.node_energy[str(node_id)] = val
+                if val <= 0.0:
+                    self.node_alive[str(node_id)] = False
+        if isinstance(alive, dict):
+            for node_id, value in alive.items():
+                node_key = str(node_id)
+                if node_key in self.node_energy and self.node_energy[node_key] <= 0.0:
+                    self.node_alive[node_key] = False
+                elif isinstance(value, bool):
+                    self.node_alive[node_key] = value
         self.update()
 
     def set_packet_progress(self, progress: float) -> None:
@@ -117,9 +120,58 @@ class LiveNetworkView(QWidget):
         self.ttl_maximum = 1
         self._outcome_status = ""
         self._feedback_elapsed = 0
-        self.node_energy = {}
-        self.node_alive = {}
+        self.node_energy = {
+            node.id: float(node.energy) for node in self.network.nodes.values()
+        }
+        self.node_alive = {
+            node.id: bool(node.alive) for node in self.network.nodes.values()
+        }
         self.update()
+
+    @staticmethod
+    def format_energy_display(
+        energy: float,
+        initial_energy: float,
+        is_alive: bool = True,
+    ) -> str:
+        """Format energy remaining text accurately in Joules."""
+        if not is_alive or energy <= 0.0:
+            return "DEAD · 0 J"
+
+        if initial_energy == int(initial_energy):
+            init_str = str(int(initial_energy))
+        else:
+            init_str = f"{initial_energy:.4g}"
+
+        if energy >= initial_energy:
+            return f"{init_str}/{init_str} J"
+
+        if energy == int(energy):
+            curr_str = str(int(energy))
+        elif round(energy, 2) == round(energy, 6):
+            curr_str = f"{energy:.4g}"
+        else:
+            curr_str = f"{energy:.4g}"
+            if curr_str == init_str or float(curr_str) >= initial_energy:
+                curr_str = f"{energy:.4f}".rstrip("0").rstrip(".")
+                if curr_str == init_str or float(curr_str) >= initial_energy:
+                    curr_str = f"{energy:.6f}".rstrip("0").rstrip(".")
+
+        return f"{curr_str}/{init_str} J"
+
+    def get_node_energy_text(self, node_id: str) -> str:
+        """Return the user-facing formatted energy string for a node."""
+        node = self.network.nodes.get(node_id)
+        if node is None:
+            return ""
+        energy = self.node_energy.get(node_id, node.energy)
+        is_alive = (
+            self.node_alive.get(node_id, node.alive)
+            and energy > 0.0
+            and node.alive
+        )
+        return self.format_energy_display(energy, node.initial_energy, is_alive)
+
 
     def clear_traversed_edges(self) -> None:
         self.traversed_edges.clear()
@@ -254,7 +306,12 @@ class LiveNetworkView(QWidget):
 
         for node in nodes:
             center = point(node.id)
-            is_alive = self.node_alive.get(node.id, node.alive)
+            current_energy = self.node_energy.get(node.id, node.energy)
+            is_alive = (
+                self.node_alive.get(node.id, node.alive)
+                and current_energy > 0.0
+                and node.alive
+            )
             is_sink = self.network.sink is node
             is_attacker = node.id == self.attacker_node_id
             radius = 22 if is_attacker else 13 if is_sink else 10
@@ -267,12 +324,32 @@ class LiveNetworkView(QWidget):
                     (radius + 5) * 2,
                     (radius + 5) * 2,
                 )
-            if is_attacker and is_alive:
+            if not is_alive:
+                painter.setBrush(QColor("#44403C"))
+                painter.setPen(QPen(QColor("#78716C"), 2))
+                painter.drawRect(
+                    round(center.x() - radius),
+                    round(center.y() - radius),
+                    radius * 2,
+                    radius * 2,
+                )
+                painter.setPen(QPen(QColor("#DC2626"), 2))
+                painter.drawLine(
+                    round(center.x() - radius + 3),
+                    round(center.y() - radius + 3),
+                    round(center.x() + radius - 3),
+                    round(center.y() + radius - 3),
+                )
+                painter.drawLine(
+                    round(center.x() + radius - 3),
+                    round(center.y() - radius + 3),
+                    round(center.x() - radius + 3),
+                    round(center.y() + radius - 3),
+                )
+            elif is_attacker:
                 self._draw_vampire(painter, center)
             elif is_sink:
-                painter.setBrush(
-                    QColor("#4B8845") if is_alive else QColor("#795D4A")
-                )
+                painter.setBrush(QColor("#4B8845"))
                 painter.setPen(QPen(QColor("#34251E"), 2))
                 painter.drawPolygon(
                     QPolygonF(
@@ -285,8 +362,7 @@ class LiveNetworkView(QWidget):
                     )
                 )
             else:
-                fill = QColor("#E5EEDC") if is_alive else QColor("#795D4A")
-                painter.setBrush(fill)
+                painter.setBrush(QColor("#E5EEDC"))
                 painter.setPen(QPen(QColor("#34251E"), 2))
                 painter.drawRect(
                     round(center.x() - radius),
@@ -318,14 +394,11 @@ class LiveNetworkView(QWidget):
                     center.y() - radius - 5,
                 ),
             )
-            energy = self.node_energy.get(node.id, node.energy)
-            painter.setFont(self.font())
-            painter.setPen(QColor("#292524"))
-            energy_text = (
-                f"{energy:.3g}/{node.initial_energy:.3g} J"
-                if is_alive
-                else "DEAD · 0 J"
+            energy_text = self.format_energy_display(
+                current_energy, node.initial_energy, is_alive
             )
+            painter.setFont(self.font())
+            painter.setPen(QColor("#292524") if is_alive else QColor("#DC2626"))
             energy_width = painter.fontMetrics().horizontalAdvance(energy_text)
             draw_node_label(
                 energy_text,
