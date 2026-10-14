@@ -4,10 +4,15 @@ import os
 from threading import Event
 from types import SimpleNamespace
 
+import pytest
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PyQt5.QtCore import QThread
 from PyQt5.QtWidgets import QApplication
 
+from attacks.carousel import CarouselAttack
+from attacks.stretch import StretchAttack
 from core.network import Network
 from core.node import Node
 from core.packet import PacketStatus
@@ -59,6 +64,104 @@ def test_second_transmission_starts_without_previous_highlights() -> None:
     finally:
         if window._thread is not None:
             window._reset_animation()
+        window.close()
+
+
+@pytest.mark.parametrize(
+    ("mode", "operation", "attack"),
+    [
+        ("Normal", "simulation", None),
+        ("Stretch", "simulation", StretchAttack("B")),
+        ("Carousel", "simulation", CarouselAttack("B")),
+        ("Compare", "experiment", None),
+    ],
+)
+def test_new_mode_starts_with_fresh_energy_and_tracks_its_own_run(
+    monkeypatch: pytest.MonkeyPatch,
+    mode: str,
+    operation: str,
+    attack: StretchAttack | CarouselAttack | None,
+) -> None:
+    window = _window()
+    initial_energy = {
+        node.id: node.initial_energy for node in window.simulator.network.nodes.values()
+    }
+    try:
+        previous_result = window.simulator.run_packet(
+            "A",
+            "C",
+            packet_size=1000,
+            ttl=5,
+        )
+        assert sum(
+            node.energy for node in window.simulator.network.nodes.values()
+        ) < sum(initial_energy.values())
+        window.network_view.traversed_edges.add(("A", "B"))
+        window._displayed_energy = {"A": 0, "B": 0, "C": 0}
+        monkeypatch.setattr(QThread, "start", lambda _thread: None)
+
+        window._launch_worker(
+            operation,
+            {
+                "source": "A",
+                "destination": "C",
+                "packet_size": 1000,
+                "ttl": 5,
+                **({"attacker_node_id": "B"} if operation == "experiment" else {}),
+            },
+            description=f"Running {mode}",
+            attack=attack,
+        )
+
+        assert [node.energy for node in window.simulator.network.nodes.values()] == [
+            initial_energy[node.id]
+            for node in window.simulator.network.nodes.values()
+        ]
+        assert all(node.alive for node in window.simulator.network.nodes.values())
+        assert all(
+            node.sent == node.received == node.forwarded == 0
+            for node in window.simulator.network.nodes.values()
+        )
+        assert window._run_energy_start == sum(initial_energy.values())
+        assert window._displayed_energy is None
+        assert window.network_view.node_energy == initial_energy
+        assert window.network_view.node_alive == {
+            node_id: True for node_id in initial_energy
+        }
+        assert window.network_view.traversed_edges == set()
+        assert window.simulator.get_results()[0]["packet_status"] == (
+            previous_result.status.name
+        )
+
+        if operation == "experiment":
+            results = window.simulator.run_experiment(
+                "A",
+                "C",
+                StretchAttack("B"),
+                CarouselAttack("B"),
+                packet_size=1000,
+                ttl=5,
+            )
+            assert all(result["total_energy_consumed"] > 0 for result in results)
+            assert [node.energy for node in window.simulator.network.nodes.values()] == [
+                initial_energy[node.id]
+                for node in window.simulator.network.nodes.values()
+            ]
+        else:
+            window.simulator.attack = attack
+            window.simulator.run_packet(
+                "A",
+                "C",
+                packet_size=1000,
+                ttl=5,
+            )
+            assert sum(
+                node.energy for node in window.simulator.network.nodes.values()
+            ) < sum(initial_energy.values())
+            assert window.simulator.get_results()[-1]["total_energy_consumed"] > 0
+    finally:
+        window._thread = None
+        window._worker = None
         window.close()
 
 

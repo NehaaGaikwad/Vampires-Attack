@@ -17,6 +17,8 @@ This module does NOT contain routing, attack, detection, or GUI logic.
 
 from __future__ import annotations
 
+from math import ceil
+
 
 class Node:
     """A battery-powered sensor node in the WSN.
@@ -30,7 +32,8 @@ class Node:
     y : float
         Y-coordinate of the node's position (metres or arbitrary units).
     initial_energy : float
-        Starting battery energy in Joules (must be > 0).
+        Starting battery energy in Joules (must be > 0). Fractional input
+        is rounded up so stored energy remains a whole number of Joules.
 
     Raises
     ------
@@ -57,8 +60,8 @@ class Node:
         self._id: str = node_id
         self._x: float = float(x)
         self._y: float = float(y)
-        self._initial_energy: float = float(initial_energy)
-        self._energy: float = float(initial_energy)
+        self._initial_energy: int = ceil(initial_energy)
+        self._energy: int = self._initial_energy
 
         # Neighbor set — stores node IDs, managed externally by Network
         self._neighbors: set[str] = set()
@@ -101,13 +104,13 @@ class Node:
     # ------------------------------------------------------------------
 
     @property
-    def initial_energy(self) -> float:
+    def initial_energy(self) -> int:
         """Battery energy at node creation — never changes."""
         return self._initial_energy
 
     @property
-    def energy(self) -> float:
-        """Currently remaining battery energy (Joules). Always >= 0."""
+    def energy(self) -> int:
+        """Currently remaining battery energy (whole Joules). Always >= 0."""
         return self._energy
 
     @property
@@ -117,7 +120,7 @@ class Node:
         This property is **derived** from :attr:`energy` — there is no
         separate flag that can drift out of sync.
         """
-        return self._energy > 0.0
+        return self._energy > 0
 
     def consume_energy(self, amount: float) -> None:
         """Deduct *amount* Joules from the node's battery.
@@ -136,7 +139,7 @@ class Node:
         """
         if amount <= 0:
             return
-        self._energy = max(0.0, self._energy - amount)
+        self._energy = max(0, self._energy - ceil(amount))
 
     # ------------------------------------------------------------------
     # Neighbors
@@ -232,7 +235,7 @@ class Node:
         status = "alive" if self.alive else "dead"
         return (
             f"Node(id={self._id!r}, pos=({self._x}, {self._y}), "
-            f"energy={self._energy:.4f}/{self._initial_energy:.4f}, {status})"
+            f"energy={self._energy}/{self._initial_energy}, {status})"
         )
 
     def __eq__(self, other: object) -> bool:

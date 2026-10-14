@@ -24,7 +24,7 @@ class LiveNetworkView(QWidget):
         self.packet_status = "IDLE"
         self.ttl_remaining = 0
         self.ttl_maximum = 1
-        self.node_energy: dict[str, float] = {}
+        self.node_energy: dict[str, int] = {}
         self.node_alive: dict[str, bool] = {}
         self._outcome_status = ""
         self._feedback_elapsed = 0
@@ -76,7 +76,7 @@ class LiveNetworkView(QWidget):
         self._outcome_status = ""
         self._feedback_timer.stop()
         self.node_energy = (
-            {str(node_id): float(value) for node_id, value in energy.items()}
+            {str(node_id): int(value) for node_id, value in energy.items()}
             if isinstance(energy, dict)
             else {}
         )
@@ -225,25 +225,6 @@ class LiveNetworkView(QWidget):
                     continue
                 start, end = edge_points(node.id, neighbor_id)
                 self._draw_pixel_link(painter, start, end)
-                midpoint = (start + end) / 2
-                weight_font = QFont(self.font())
-                weight_font.setFamily("Courier New")
-                weight_font.setPointSize(8)
-                weight_font.setBold(True)
-                painter.setFont(weight_font)
-                weight = f"{self.network.distance(node, neighbor):.1f}"
-                text_bounds = painter.fontMetrics().boundingRect(weight)
-                label_rect = text_bounds.translated(
-                    round(midpoint.x() + 3),
-                    round(midpoint.y() - 4),
-                ).adjusted(-3, -1, 3, 1)
-                painter.fillRect(label_rect, QColor("#FFF7E9"))
-                painter.setPen(QColor("#795D4A"))
-                painter.drawText(
-                    label_rect.left() + 3,
-                    label_rect.bottom() - 1,
-                    weight,
-                )
                 painter.setPen(QPen(inactive_edge, 2))
 
         self._draw_active_route(painter, edge_points, point)
@@ -321,11 +302,7 @@ class LiveNetworkView(QWidget):
             energy = self.node_energy.get(node.id, node.energy)
             painter.setFont(self.font())
             painter.setPen(QColor("#292524"))
-            energy_text = (
-                f"{energy:.3g}/{node.initial_energy:.3g} J"
-                if is_alive
-                else "DEAD · 0 J"
-            )
+            energy_text = f"{int(energy)}/{node.initial_energy} J"
             energy_width = painter.fontMetrics().horizontalAdvance(energy_text)
             draw_node_label(
                 energy_text,

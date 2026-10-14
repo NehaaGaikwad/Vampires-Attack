@@ -129,6 +129,7 @@ class Packet:
 
         # Lifecycle state
         self._status: PacketStatus = PacketStatus.IN_TRANSIT
+        self._failure_reason: str | None = None
 
     # ------------------------------------------------------------------
     # Core identity
@@ -230,6 +231,11 @@ class Packet:
         return self._status == PacketStatus.FAILED
 
     @property
+    def failure_reason(self) -> str | None:
+        """Reason recorded when delivery fails, otherwise ``None``."""
+        return self._failure_reason
+
+    @property
     def in_transit(self) -> bool:
         """``True`` if the packet is still travelling (not yet delivered
         or dropped)."""
@@ -321,9 +327,13 @@ class Packet:
         if self._status == PacketStatus.IN_TRANSIT:
             self._status = PacketStatus.EXPIRED
 
-    def mark_failed(self) -> None:
-        """Mark an in-flight packet failed because delivery is impossible."""
+    def mark_failed(
+        self,
+        reason: str = "No valid live route to destination.",
+    ) -> None:
+        """Mark an in-flight packet failed and record why delivery is impossible."""
         if self._status == PacketStatus.IN_TRANSIT:
+            self._failure_reason = reason
             self._status = PacketStatus.FAILED
 
     def mark_delivered(self) -> None:

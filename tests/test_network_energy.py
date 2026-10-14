@@ -147,6 +147,17 @@ class TestNodeEnergyConsumption:
         node_n1.consume_energy(30)
         assert node_n1.energy == 40.0
 
+    def test_energy_storage_uses_whole_joules(self):
+        node = Node("N", 0, 0, 100.5)
+
+        assert node.initial_energy == 101
+        assert node.energy == 101
+        assert type(node.energy) is int
+
+        node.consume_energy(0.1)
+        assert node.energy == 100
+        assert type(node.energy) is int
+
 
 class TestNodeExactDepletion:
     """Test 3 — Exact battery depletion."""
@@ -600,12 +611,14 @@ class TestTransmitOperation:
         sender = Node("S", 0, 0, 1.0)
         receiver = Node("R", 10, 0, 1.0)
         result = energy_model.transmit(sender, receiver, 4000, 10.0)
-        assert result.tx_energy == pytest.approx(
+        assert result.tx_energy == math.ceil(
             energy_model.transmission_energy(4000, 10.0)
         )
-        assert result.rx_energy == pytest.approx(
+        assert result.rx_energy == math.ceil(
             energy_model.reception_energy(4000)
         )
+        assert type(result.tx_energy) is int
+        assert type(result.rx_energy) is int
 
     def test_multiple_transmissions_accumulate_counters(self, energy_model):
         sender = Node("S", 0, 0, 10.0)

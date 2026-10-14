@@ -37,7 +37,7 @@ from visualization.live_network_view import LiveNetworkView
 
 
 ResultValue = str | int | float | bool
-ENERGY_PERCENT_SCALE = 10_000
+ENERGY_PERCENT_SCALE = 1
 
 
 class PacketDeliveredDialog(QDialog):
@@ -329,7 +329,8 @@ class SimulationWorker(QObject):
                     destination=str(self.options["destination"]),
                     packet_size=int(self.options["packet_size"]),
                     ttl=int(self.options["ttl"]),
-                    on_progress=self._report_progress,
+                    on_transmission_start=self._report_progress,
+                    on_reception=self._report_progress,
                 )
             else:
                 attacker_id = str(self.options["attacker_node_id"])
@@ -340,7 +341,8 @@ class SimulationWorker(QObject):
                     ttl=int(self.options["ttl"]),
                     stretch_attack=StretchAttack(attacker_id),
                     carousel_attack=CarouselAttack(attacker_id),
-                    on_progress=self._report_progress,
+                    on_transmission_start=self._report_progress,
+                    on_reception=self._report_progress,
                 )
             if not self.stop_event.is_set():
                 self.completed.emit(self.generation, self.operation, result)
@@ -840,7 +842,7 @@ class SimulatorMainWindow(QMainWindow):
             if total_energy > 0
             else 0.0
         )
-        self.hud_energy.setText(f"{energy_percent:.4f}%")
+        self.hud_energy.setText(f"{energy_percent:.0f}%")
         energy_bar_value = round(energy_percent * ENERGY_PERCENT_SCALE)
         self.hud_energy_bar.setValue(energy_bar_value)
         self.readout_energy_bar.setValue(self.hud_energy_bar.value())
@@ -1719,9 +1721,6 @@ class SimulatorMainWindow(QMainWindow):
             options = self._packet_options()
             attack = self._selected_attack()
             scenario = self._scenario
-            self._run_energy_start = sum(
-                node.energy for node in self.simulator.network.nodes.values()
-            )
             result_index = len(self.simulator.get_results())
             self._result_start_index = result_index
             self._scenario_labels[result_index] = scenario
@@ -1747,9 +1746,6 @@ class SimulatorMainWindow(QMainWindow):
             sink = self.simulator.network.sink
             if sink is not None and attacker_id == sink.id:
                 raise ValueError("The sink cannot be selected as an attacker.")
-            self._run_energy_start = sum(
-                node.energy for node in self.simulator.network.nodes.values()
-            )
             self._result_start_index = len(self.simulator.get_results())
             self._launch_worker(
                 "experiment",
@@ -1767,10 +1763,16 @@ class SimulatorMainWindow(QMainWindow):
         description: str,
         attack: StretchAttack | CarouselAttack | None = None,
     ) -> None:
+        self.simulator.reset_nodes()
+        self._run_energy_start = sum(
+            node.energy for node in self.simulator.network.nodes.values()
+        )
         self._delivery_popup_shown = False
         self._run_started_at = perf_counter()
         self._active_packet = True
         self._pending_hop_event = None
+        self._packet_progress = 0.0
+        self._current_gate = None
         self._displayed_energy = None
         self._progress_scenario = None
         self._run_alive_start = {
@@ -1781,6 +1783,13 @@ class SimulatorMainWindow(QMainWindow):
         }
         self.event_table.setRowCount(0)
         self.network_view.reset_animation(clear_traversed=True)
+        self.network_view.node_energy = {
+            node.id: node.energy for node in self.simulator.network.nodes.values()
+        }
+        self.network_view.node_alive = {
+            node.id: node.alive for node in self.simulator.network.nodes.values()
+        }
+        self.network_view.update()
         self.packet_label.setText("PACKET // WAITING FOR TRANSMISSION")
         self.route_label.setText("Awaiting first hop")
         self._set_metric_packet_status("—")
@@ -1831,73 +1840,16 @@ class SimulatorMainWindow(QMainWindow):
         self._worker = worker
         thread.start()
 
-    def _show_progress(
+    def _update_energy_display(
         self,
-        generation: int,
-        event: object,
-        gate: object,
+        event: dict[str, object],
+        *,
+        remaining_ttl: int | None = None,
     ) -> None:
-        if generation != self._run_generation:
-            if isinstance(gate, Event):
-                gate.set()
-            return
-        if not isinstance(event, dict) or not isinstance(gate, Event):
-            return
-        self._current_gate = gate
-        self._packet_progress = 0.0
-        remaining_ttl = max(
-            0,
-            int(self.ttl_input.currentText()) - int(event.get("hops", 0)),
-        )
-        self.network_view.show_progress(
-            {
-                **event,
-                "ttl_remaining": remaining_ttl,
-                "ttl_max": int(self.ttl_input.currentText()),
-            }
-        )
-        self._pending_hop_event = event
-        sender = str(event["sender"])
-        receiver = str(event["receiver"])
-        route = event.get("route", [])
-        if isinstance(route, list):
-            self.route_label.setText(" → ".join(map(str, route)))
-        scenario = event.get("scenario")
-        scenario_prefix = f"{str(scenario).title()} | " if scenario else ""
-        self.packet_label.setText(
-            f"{scenario_prefix}PACKET // {event['status']} | "
-            f"HOP {event['hops']} | {sender} → {receiver}"
-        )
-        route_kind = str(event.get("route_kind", "normal")).upper()
-        self._set_status(
-            f"{scenario_prefix}{route_kind} ROUTE",
-            "running",
-        )
-        status = str(event.get("status", "—"))
-        self._set_metric_packet_status(status.title())
-        self.metric_hops.setText(str(event.get("hops", "—")))
         energy = event.get("node_energy")
         alive = event.get("node_alive")
-        scenario = event.get("scenario")
-        scenario_key = str(scenario) if scenario is not None else None
-        if (
-            scenario_key is not None
-            and self._progress_scenario is not None
-            and scenario_key != self._progress_scenario
-        ):
-            self.network_view.clear_traversed_edges()
-            if isinstance(alive, dict):
-                self._reported_dead_nodes = {
-                    node_id
-                    for node_id, is_alive in self._run_alive_start.items()
-                    if not is_alive
-                }
-        self._progress_scenario = scenario_key
         if isinstance(energy, dict):
-            self._refresh_hud(
-                energy=energy,
-                ttl=remaining_ttl,
-            )
+            self._refresh_hud(energy=energy, ttl=remaining_ttl)
             self.metric_energy.setText(
                 self._format_energy(
                     self._run_energy_start
@@ -1928,6 +1880,85 @@ class SimulatorMainWindow(QMainWindow):
                         "DEAD",
                         alarm=True,
                     )
+            self.network_view.node_energy = {
+                str(node_id): int(value)
+                for node_id, value in energy.items()
+                if isinstance(value, (int, float)) and not isinstance(value, bool)
+            }
+        if isinstance(alive, dict):
+            self.network_view.node_alive = {
+                str(node_id): is_alive
+                for node_id, is_alive in alive.items()
+                if isinstance(is_alive, bool)
+            }
+        self.network_view.update()
+
+    def _show_progress(
+        self,
+        generation: int,
+        event: object,
+        gate: object,
+    ) -> None:
+        if generation != self._run_generation:
+            if isinstance(gate, Event):
+                gate.set()
+            return
+        if not isinstance(event, dict) or not isinstance(gate, Event):
+            return
+        self._current_gate = gate
+        if event.get("phase") == "reception":
+            remaining_ttl = max(
+                0,
+                int(self.ttl_input.currentText()) - int(event.get("hops", 0)),
+            )
+            self._update_energy_display(event, remaining_ttl=remaining_ttl)
+            self.metric_ttl.setText(str(remaining_ttl))
+            gate.set()
+            return
+
+        self._packet_progress = 0.0
+        remaining_ttl = max(
+            0,
+            int(self.ttl_input.currentText()) - int(event.get("hops", 0)),
+        )
+        self.network_view.show_progress(
+            {
+                **event,
+                "ttl_remaining": remaining_ttl,
+                "ttl_max": int(self.ttl_input.currentText()),
+            }
+        )
+        self._pending_hop_event = event
+        sender = str(event["sender"])
+        receiver = str(event["receiver"])
+        route = event.get("route", [])
+        if isinstance(route, list):
+            self.route_label.setText(" → ".join(map(str, route)))
+        scenario = event.get("scenario")
+        scenario_prefix = f"{str(scenario).title()} | " if scenario else ""
+        self.packet_label.setText(
+            f"{scenario_prefix}PACKET // {event['status']} | "
+            f"HOP {event['hops']} | {sender} → {receiver}"
+        )
+        route_kind = str(event.get("route_kind", "normal")).upper()
+        self._set_status(f"{scenario_prefix}{route_kind} ROUTE", "running")
+        status = str(event.get("status", "—"))
+        self._set_metric_packet_status(status.title())
+        self.metric_hops.setText(str(event.get("hops", "—")))
+        scenario_key = str(scenario) if scenario is not None else None
+        if (
+            scenario_key is not None
+            and self._progress_scenario is not None
+            and scenario_key != self._progress_scenario
+        ):
+            self.network_view.clear_traversed_edges()
+            self._reported_dead_nodes = {
+                node_id
+                for node_id, was_alive in self._run_alive_start.items()
+                if not was_alive
+            }
+        self._progress_scenario = scenario_key
+        self._update_energy_display(event, remaining_ttl=remaining_ttl)
         hops = event.get("hops")
         if isinstance(hops, int):
             self.metric_ttl.setText(
@@ -1942,10 +1973,7 @@ class SimulatorMainWindow(QMainWindow):
             event_name,
             f"Hop {event.get('hops', '—')} · TTL {self.metric_ttl.text()}",
             status,
-            alarm=(
-                receiver == attacker_id
-                and route_kind == "ATTACKED"
-            ),
+            alarm=(receiver == attacker_id and route_kind == "ATTACKED"),
         )
         if not self._paused:
             self._animation_timer.start()
@@ -2076,6 +2104,17 @@ class SimulatorMainWindow(QMainWindow):
                 status_name,
                 getattr(result, "ttl", "—"),
             )
+            if status_name.upper() == "FAILED":
+                failure_reason = getattr(result, "failure_reason", None)
+                details = (
+                    str(failure_reason)
+                    if failure_reason
+                    else "No valid live route to destination"
+                )
+            else:
+                details = (
+                    f"{hops} hops · TTL {getattr(result, 'ttl', '—')} remaining"
+                )
             self._append_event(
                 f"{getattr(result, 'source', '—')} → "
                 f"{getattr(result, 'destination', '—')}",
@@ -2084,14 +2123,20 @@ class SimulatorMainWindow(QMainWindow):
                     if status_name.upper() == "FAILED"
                     else "SIMULATION COMPLETE"
                 ),
-                (
-                    "No valid live route to destination"
-                    if status_name.upper() == "FAILED"
-                    else f"{hops} hops · TTL {getattr(result, 'ttl', '—')} remaining"
-                ),
+                details,
                 status_name,
                 alarm=status_name.upper() in {"EXPIRED", "DROPPED", "FAILED"},
             )
+            self._displayed_energy = None
+            self.network_view.node_energy = {
+                node.id: node.energy
+                for node in self.simulator.network.nodes.values()
+            }
+            self.network_view.node_alive = {
+                node.id: node.alive
+                for node in self.simulator.network.nodes.values()
+            }
+            self.network_view.update()
             self._refresh_hud(ttl=getattr(result, "ttl", "—"))
             results = self.simulator.get_results()
             if self._result_start_index < len(results):
@@ -2109,6 +2154,26 @@ class SimulatorMainWindow(QMainWindow):
                 )
         else:
             count = len(result) if isinstance(result, list) else 0
+            if isinstance(result, list):
+                for scenario_result in result:
+                    if (
+                        not isinstance(scenario_result, Mapping)
+                        or str(scenario_result.get("packet_status", "")).upper()
+                        != "FAILED"
+                    ):
+                        continue
+                    scenario = str(scenario_result.get("scenario", "Scenario"))
+                    reason = scenario_result.get(
+                        "failure_reason",
+                        "No valid live route to destination",
+                    )
+                    self._append_event(
+                        f"{scenario} scenario",
+                        "SIMULATION FAILED",
+                        str(reason),
+                        "FAILED",
+                        alarm=True,
+                    )
             latest_status = (
                 str(result[-1].get("packet_status", ""))
                 if isinstance(result, list) and result
@@ -2257,7 +2322,7 @@ class SimulatorMainWindow(QMainWindow):
     def _format_energy(value: object) -> str:
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             return str(value) if value is not None else ""
-        return f"{value:.6g}"
+        return f"{value:.0f}"
 
     @staticmethod
     def _scenario_name(result: Mapping[str, ResultValue]) -> str:

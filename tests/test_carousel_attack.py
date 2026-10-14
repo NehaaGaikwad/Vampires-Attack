@@ -242,7 +242,10 @@ class TestCarouselTTLAndSafetyConstraints:
 
 
 class TestCarouselSimulation:
-    def test_packet_repeats_real_hops_and_expires_before_sink(self, sample_network):
+    def test_packet_repeats_real_hops_until_depletion_then_routes_to_sink(
+        self,
+        sample_network,
+    ):
         energy = EnergyModel()
         simulator = Simulator(
             sample_network,
@@ -260,14 +263,15 @@ class TestCarouselSimulation:
             on_progress=lambda event: progress.append(event.copy()),
         )
 
-        assert packet.status.name == "EXPIRED"
+        assert packet.status.name == "DELIVERED"
         assert packet.route[0] == "N1"
         assert packet.route[1] == "N2"
-        assert packet.route[-1] == "N2"
+        assert packet.route[-1] == "SINK"
         assert packet.route.count("N2") > 1
-        assert "SINK" not in packet.route
+        assert not sample_network.nodes["N2"].alive
+        assert not sample_network.nodes["N3"].alive
         assert sample_network.sink is not None
-        assert sample_network.sink.received == 0
+        assert sample_network.sink.received == 1
         assert [event["route"] for event in progress] == [
             packet.route[: index + 2] for index in range(len(progress))
         ]
@@ -277,7 +281,7 @@ class TestCarouselSimulation:
         assert all(event["route_kind"] == "attacked" for event in progress)
         result = simulator.get_results()[0]
         assert result["hops"] == packet.hops
-        assert result["packet_status"] == "EXPIRED"
+        assert result["packet_status"] == "DELIVERED"
 
     def test_packet_loops_then_delivers_to_sink(self, simulator_network):
         energy = EnergyModel()

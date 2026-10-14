@@ -33,6 +33,10 @@ Where:
 These defaults match well-known WSN simulation literature (e.g., Heinzelman
 et al., 2000) but are **fully configurable** via the constructor.
 
+Per-operation costs are calculated with the formulas below and rounded
+up to whole Joules when charged to a node, so a positive radio cost
+cannot disappear through integer truncation.
+
 Dead-Node Policy
 ----------------
 Attempting to transmit from a **dead sender** or to a **dead receiver**
@@ -49,6 +53,7 @@ Units
 from __future__ import annotations
 
 from dataclasses import dataclass
+from math import ceil
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -90,20 +95,31 @@ class TransmissionResult:
 
     Attributes
     ----------
-    tx_energy : float
-        Energy consumed by the sender (Joules).
-    rx_energy : float
-        Energy consumed by the receiver (Joules).
+    tx_energy : int
+        Whole Joules charged to the sender.
+    rx_energy : int
+        Whole Joules charged to the receiver.
     sender_alive : bool
         Whether the sender is still alive after the transmission.
     receiver_alive : bool
         Whether the receiver is still alive after the reception.
     """
 
-    tx_energy: float
-    rx_energy: float
+    tx_energy: int
+    rx_energy: int
     sender_alive: bool
     receiver_alive: bool
+
+
+@dataclass
+class PendingTransmission:
+    """A started transmission whose receiver has not processed it yet."""
+
+    sender: "Node"
+    receiver: "Node"
+    tx_energy: int
+    rx_energy: int
+    reception_processed: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -226,6 +242,45 @@ class EnergyModel:
     # Transmission operation
     # ------------------------------------------------------------------
 
+    def begin_transmission(
+        self,
+        sender: "Node",
+        receiver: "Node",
+        packet_size: float,
+        distance: float,
+    ) -> PendingTransmission:
+        """Charge sender-side transmission energy and return pending reception."""
+        if not sender.alive:
+            raise NodeDeadError(sender.id, "sender")
+        if not receiver.alive:
+            raise NodeDeadError(receiver.id, "receiver")
+
+        tx_energy = ceil(self.transmission_energy(packet_size, distance))
+        rx_energy = ceil(self.reception_energy(packet_size))
+        sender.consume_energy(tx_energy)
+        sender.sent += 1
+        return PendingTransmission(sender, receiver, tx_energy, rx_energy)
+
+    def complete_reception(
+        self,
+        transmission: PendingTransmission,
+    ) -> TransmissionResult:
+        """Charge receiver energy once when the packet reaches that node."""
+        if transmission.reception_processed:
+            raise ValueError("Reception has already been processed.")
+        if not transmission.receiver.alive:
+            raise NodeDeadError(transmission.receiver.id, "receiver")
+
+        transmission.reception_processed = True
+        transmission.receiver.consume_energy(transmission.rx_energy)
+        transmission.receiver.received += 1
+        return TransmissionResult(
+            tx_energy=transmission.tx_energy,
+            rx_energy=transmission.rx_energy,
+            sender_alive=transmission.sender.alive,
+            receiver_alive=transmission.receiver.alive,
+        )
+
     def transmit(
         self,
         sender: "Node",
@@ -239,8 +294,10 @@ class EnergyModel:
         -----
         1. Raise :exc:`NodeDeadError` if the sender is dead.
         2. Raise :exc:`NodeDeadError` if the receiver is dead.
-        3. Calculate transmission energy (``E_tx``).
-        4. Calculate reception energy (``E_rx``).
+        3. Calculate transmission energy (``E_tx``) and round it up to
+           whole Joules.
+        4. Calculate reception energy (``E_rx``) and round it up to
+           whole Joules.
         5. Consume ``E_tx`` from the sender's battery.
         6. Consume ``E_rx`` from the receiver's battery.
         7. Increment ``sender.sent``.
@@ -274,27 +331,13 @@ class EnergyModel:
         ValueError
             If *packet_size* or *distance* is invalid.
         """
-        # Dead-node checks (must precede energy calculation)
-        if not sender.alive:
-            raise NodeDeadError(sender.id, "sender")
-        if not receiver.alive:
-            raise NodeDeadError(receiver.id, "receiver")
-
-        tx_energy = self.transmission_energy(packet_size, distance)
-        rx_energy = self.reception_energy(packet_size)
-
-        sender.consume_energy(tx_energy)
-        receiver.consume_energy(rx_energy)
-
-        sender.sent += 1
-        receiver.received += 1
-
-        return TransmissionResult(
-            tx_energy=tx_energy,
-            rx_energy=rx_energy,
-            sender_alive=sender.alive,
-            receiver_alive=receiver.alive,
+        transmission = self.begin_transmission(
+            sender,
+            receiver,
+            packet_size,
+            distance,
         )
+        return self.complete_reception(transmission)
 
     # ------------------------------------------------------------------
     # Dunder helpers

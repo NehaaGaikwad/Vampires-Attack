@@ -14,7 +14,7 @@ Responsibilities
 - Enforce dead-node safety at every forwarding step.
 - Increment ``node.forwarded`` at the correct points (intermediate nodes
   that receive and re-forward a packet).
-- Integrate with ``EnergyModel.transmit()`` for every physical hop.
+- Charge transmission and reception energy at their respective hop stages.
 
 Non-Responsibilities
 --------------------
@@ -249,13 +249,15 @@ class Router:
         packet: "Packet",
         packet_size: Optional[int] = None,
         on_progress: Callable[[dict[str, object]], None] | None = None,
+        on_transmission_start: Callable[[dict[str, object]], None] | None = None,
+        on_reception: Callable[[dict[str, object]], None] | None = None,
     ) -> "Packet":
         """Forward *packet* hop-by-hop from its current node to its destination.
 
         The packet's route is computed via Dijkstra starting from
         ``packet.current_node``.  The packet is then advanced one hop at
-        a time, consuming energy via ``EnergyModel.transmit()`` at each
-        step.
+        a time, charging sender energy when transmission starts and
+        receiver energy when reception is processed.
 
         The method stops when:
 
@@ -298,7 +300,7 @@ class Router:
             sender_id = packet.current_node
             sender_node = self._network.get_node(sender_id)
             if sender_node is None or not sender_node.alive:
-                packet.mark_failed()
+                packet.mark_failed(f"Current node {sender_id!r} is dead or unavailable.")
                 return packet
             if packet.ttl <= 0:
                 packet.mark_expired()
@@ -311,7 +313,10 @@ class Router:
                 excluded_nodes=packet.visited - {sender_id},
             )
             if route is None:
-                packet.mark_failed()
+                packet.mark_failed(
+                    f"No valid live route from {sender_id!r} "
+                    f"to {packet.destination!r}."
+                )
                 return packet
             if len(route) == 1:
                 packet.mark_delivered()
@@ -327,7 +332,10 @@ class Router:
             if receiver_node is None or not receiver_node.alive:
                 stale_hop_retries += 1
                 if stale_hop_retries > len(self._network.nodes):
-                    packet.mark_failed()
+                    packet.mark_failed(
+                        f"Route from {sender_id!r} to {packet.destination!r} "
+                        "remained unavailable."
+                    )
                     return packet
                 continue
 
@@ -335,14 +343,16 @@ class Router:
             if receiver_id not in alive_neighbour_ids:
                 stale_hop_retries += 1
                 if stale_hop_retries > len(self._network.nodes):
-                    packet.mark_failed()
+                    packet.mark_failed(
+                        f"Route from {sender_id!r} to {packet.destination!r} "
+                        "remained unavailable."
+                    )
                     return packet
                 continue
 
             distance = self._network.distance(sender_id, receiver_id)
-
             try:
-                self._energy_model.transmit(
+                transmission = self._energy_model.begin_transmission(
                     sender=sender_node,
                     receiver=receiver_node,
                     packet_size=size,
@@ -351,9 +361,31 @@ class Router:
             except NodeDeadError:
                 stale_hop_retries += 1
                 if stale_hop_retries > len(self._network.nodes):
-                    packet.mark_failed()
+                    packet.mark_failed(
+                        f"A node on the route from {sender_id!r} to "
+                        f"{packet.destination!r} died during transmission."
+                    )
                     return packet
                 continue
+
+            hop_event = {
+                "route": packet.route + [receiver_id],
+                "planned_route": list(route),
+                "sender": sender_id,
+                "receiver": receiver_id,
+                "status": "IN_TRANSIT",
+                "hops": packet.hops + 1,
+            }
+            if on_transmission_start is not None:
+                on_transmission_start({**hop_event, "phase": "transmission"})
+
+            try:
+                self._energy_model.complete_reception(transmission)
+            except NodeDeadError:
+                packet.mark_failed(
+                    f"Receiver {receiver_id!r} died before processing reception."
+                )
+                return packet
 
             packet.advance(receiver_id)
             stale_hop_retries = 0
@@ -361,17 +393,18 @@ class Router:
             if sender_id != packet.source:
                 sender_node.forwarded += 1
 
+            arrived_event = {
+                "route": packet.route,
+                "planned_route": list(route),
+                "sender": sender_id,
+                "receiver": receiver_id,
+                "status": packet.status.name,
+                "hops": packet.hops,
+            }
+            if on_reception is not None:
+                on_reception({**arrived_event, "phase": "reception"})
             if on_progress is not None:
-                on_progress(
-                    {
-                        "route": packet.route,
-                        "planned_route": list(route),
-                        "sender": sender_id,
-                        "receiver": receiver_id,
-                        "status": packet.status.name,
-                        "hops": packet.hops,
-                    }
-                )
+                on_progress(arrived_event)
 
         return packet
 

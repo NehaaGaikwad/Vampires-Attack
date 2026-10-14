@@ -18,6 +18,8 @@ Coverage
 
 from __future__ import annotations
 
+import math
+
 import pytest
 
 from core.node import Node
@@ -1165,8 +1167,8 @@ class TestPacketMarkDelivered:
 class TestRoutePacketPacketSizeOverride:
     """route_packet() packet_size parameter correctly overrides packet's own size."""
 
-    def test_packet_size_override_changes_energy_cost(self):
-        """Routing with a larger packet_size should consume more energy."""
+    def test_packet_size_override_uses_whole_joule_costs(self):
+        """Radio costs below one Joule are charged as one whole Joule."""
         net = Network(communication_range=50.0)
         n1a = Node("S1", 0.0, 0.0, 100.0)
         sk1 = Node("SK1", 30.0, 0.0, 100.0)
@@ -1181,7 +1183,9 @@ class TestRoutePacketPacketSizeOverride:
         p1 = Packet("S1", "SK1", ttl=5, packet_size=100)
         r1.route_packet(p1)
         energy_after_small = net.get_node("S1").energy
-        energy_consumed_small = 100.0 - energy_after_small
+        energy_consumed_small = 100 - energy_after_small
+        expected_small = math.ceil(em1.transmission_energy(100, 30.0))
+        assert energy_consumed_small == expected_small
 
         # Reset for second run
         net2 = Network(communication_range=50.0)
@@ -1197,9 +1201,11 @@ class TestRoutePacketPacketSizeOverride:
         r2 = Router(net2, em2)
         p2 = Packet("S1", "SK1", ttl=5, packet_size=100)
         r2.route_packet(p2, packet_size=10000)  # override to larger size
-        energy_consumed_large = 100.0 - net2.get_node("S1").energy
+        energy_consumed_large = 100 - net2.get_node("S1").energy
+        expected_large = math.ceil(em2.transmission_energy(10000, 30.0))
 
-        assert energy_consumed_large > energy_consumed_small
+        assert energy_consumed_large == expected_large
+        assert energy_consumed_large == energy_consumed_small == 1
 
 
 class TestRoutePacketMidRoute:
@@ -1283,4 +1289,3 @@ class TestDijkstraSingleNode:
         # Also check B->A direction
         path = shortest_path(isolated_network, "N2", "N1")
         assert path is None
-

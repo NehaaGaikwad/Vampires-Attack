@@ -38,6 +38,8 @@ class Simulator:
         packet_size: int = 1,
         ttl: int | None = None,
         on_progress: ProgressCallback | None = None,
+        on_transmission_start: ProgressCallback | None = None,
+        on_reception: ProgressCallback | None = None,
     ) -> Packet:
         """Create and route one packet, returning its completed state."""
         packet_kwargs: dict[str, int] = {"packet_size": packet_size}
@@ -55,6 +57,18 @@ class Simulator:
                     route_kind="normal",
                     normal_route=event["planned_route"],
                 ),
+                on_transmission_start=lambda event: self._report_progress(
+                    event,
+                    on_transmission_start,
+                    route_kind="normal",
+                    normal_route=event["planned_route"],
+                ),
+                on_reception=lambda event: self._report_progress(
+                    event,
+                    on_reception,
+                    route_kind="normal",
+                    normal_route=event["planned_route"],
+                ),
             )
             self._record_result(result, energy_before, attack_used=False)
             return result
@@ -62,7 +76,9 @@ class Simulator:
         energy_before = self._total_remaining_energy()
         route = self.router.find_route(source, destination)
         if route is None:
-            packet.mark_failed()
+            packet.mark_failed(
+                f"No valid live route from {source!r} to {destination!r}."
+            )
             self._record_result(packet, energy_before, attack_used=False)
             return packet
 
@@ -75,6 +91,8 @@ class Simulator:
             packet,
             attacked_route,
             on_progress=on_progress,
+            on_transmission_start=on_transmission_start,
+            on_reception=on_reception,
             normal_route=route,
             allow_revisits=isinstance(self.attack, CarouselAttack),
         )
@@ -100,6 +118,8 @@ class Simulator:
         packet_size: int = 1,
         ttl: int | None = None,
         on_progress: ProgressCallback | None = None,
+        on_transmission_start: ProgressCallback | None = None,
+        on_reception: ProgressCallback | None = None,
     ) -> list[Result]:
         """Compare normal routing, Stretch, and Carousel with isolated network copies."""
         scenarios: list[tuple[str, StretchAttack | CarouselAttack | None]] = [
@@ -133,6 +153,20 @@ class Simulator:
                     if on_progress is not None
                     else None
                 ),
+                on_transmission_start=(
+                    lambda event, scenario=scenario: on_transmission_start(
+                        {**event, "scenario": scenario}
+                    )
+                    if on_transmission_start is not None
+                    else None
+                ),
+                on_reception=(
+                    lambda event, scenario=scenario: on_reception(
+                        {**event, "scenario": scenario}
+                    )
+                    if on_reception is not None
+                    else None
+                ),
             )
             result = simulator.get_results()[0]
             result["scenario"] = scenario
@@ -164,11 +198,15 @@ class Simulator:
 
     def reset(self) -> None:
         """Restore node state and clear completed simulation results."""
+        self.reset_nodes()
+        self._results.clear()
+
+    def reset_nodes(self) -> None:
+        """Restore node energy and packet counters without clearing run results."""
         for node in self.network.nodes.values():
             node.reset()
         self.network.update_neighbors()
         self.router.routing_table.clear()
-        self._results.clear()
 
     def _copy_network(self) -> Network:
         """Copy current network topology and node state for one experiment scenario."""
@@ -222,27 +260,30 @@ class Simulator:
         energy_before: float,
         attack_used: bool,
     ) -> None:
-        self._results.append(
-            {
-                "packet_status": packet.status.name,
-                "hops": packet.hops,
-                "source": packet.source,
-                "destination": packet.destination,
-                "total_energy_consumed": (
-                    energy_before - self._total_remaining_energy()
-                ),
-                "alive_nodes": sum(
-                    node.alive for node in self.network.nodes.values()
-                ),
-                "attack_used": attack_used,
-            }
-        )
+        result: Result = {
+            "packet_status": packet.status.name,
+            "hops": packet.hops,
+            "source": packet.source,
+            "destination": packet.destination,
+            "total_energy_consumed": (
+                energy_before - self._total_remaining_energy()
+            ),
+            "alive_nodes": sum(
+                node.alive for node in self.network.nodes.values()
+            ),
+            "attack_used": attack_used,
+        }
+        if packet.failure_reason is not None:
+            result["failure_reason"] = packet.failure_reason
+        self._results.append(result)
 
     def _execute_route(
         self,
         packet: Packet,
         route: list[str],
         on_progress: ProgressCallback | None = None,
+        on_transmission_start: ProgressCallback | None = None,
+        on_reception: ProgressCallback | None = None,
         normal_route: list[str] | None = None,
         allow_revisits: bool = False,
     ) -> Packet:
@@ -252,7 +293,9 @@ class Simulator:
             sender_id = packet.current_node
             sender_node = self.network.get_node(sender_id)
             if sender_node is None or not sender_node.alive:
-                packet.mark_failed()
+                packet.mark_failed(
+                    f"Current node {sender_id!r} is dead or unavailable."
+                )
                 return packet
             if sender_id == packet.destination:
                 packet.mark_delivered()
@@ -272,7 +315,10 @@ class Simulator:
                     ),
                 )
                 if replacement is None:
-                    packet.mark_failed()
+                    packet.mark_failed(
+                        f"No valid live route from {sender_id!r} "
+                        f"to {packet.destination!r}."
+                    )
                     return packet
                 route = packet.route + replacement[1:]
                 route_index = len(packet.route) - 1
@@ -294,7 +340,7 @@ class Simulator:
 
             distance = self.network.distance(sender_id, receiver_id)
             try:
-                self.energy_model.transmit(
+                transmission = self.energy_model.begin_transmission(
                     sender=sender_node,
                     receiver=receiver_node,
                     packet_size=packet.packet_size,
@@ -304,21 +350,53 @@ class Simulator:
                 route_index = len(route)
                 continue
 
+            hop_event = {
+                "route": packet.route + [receiver_id],
+                "planned_route": list(route),
+                "sender": sender_id,
+                "receiver": receiver_id,
+                "status": "IN_TRANSIT",
+                "hops": packet.hops + 1,
+            }
+            if on_transmission_start is not None:
+                self._report_progress(
+                    {**hop_event, "phase": "transmission"},
+                    on_transmission_start,
+                    route_kind="attacked",
+                    normal_route=normal_route or route,
+                )
+
+            try:
+                self.energy_model.complete_reception(transmission)
+            except NodeDeadError:
+                packet.mark_failed(
+                    f"Receiver {receiver_id!r} died before processing reception."
+                )
+                return packet
+
             packet.advance(receiver_id, allow_revisit=allow_revisits)
             if allow_revisits and packet.in_transit and packet.ttl == 0:
                 packet.mark_expired()
             if sender_id != packet.source:
                 sender_node.forwarded += 1
 
+            arrived_event = {
+                "route": packet.route,
+                "planned_route": list(route),
+                "sender": sender_id,
+                "receiver": receiver_id,
+                "status": packet.status.name,
+                "hops": packet.hops,
+            }
+            if on_reception is not None:
+                self._report_progress(
+                    {**arrived_event, "phase": "reception"},
+                    on_reception,
+                    route_kind="attacked",
+                    normal_route=normal_route or route,
+                )
             self._report_progress(
-                {
-                    "route": packet.route,
-                    "planned_route": list(route),
-                    "sender": sender_id,
-                    "receiver": receiver_id,
-                    "status": packet.status.name,
-                    "hops": packet.hops,
-                },
+                arrived_event,
                 on_progress,
                 route_kind="attacked",
                 normal_route=normal_route or route,
